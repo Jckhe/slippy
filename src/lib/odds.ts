@@ -9,7 +9,11 @@ export async function fetchOdds() {
     `&oddsFormat=american` +
     `&apiKey=${ENV.ODDS_API_KEY}`;
 
+  console.log('[ODDS] Fetching from API...');
   const r = await fetch(url);
+  console.log('[ODDS] Response status:', r.status);
   if (!r.ok) throw new Error("Odds API error");
-  return r.json();
+  const data = await r.json();
+  console.log('[ODDS] Got', data?.length || 0, 'games');
+  return data;
 }

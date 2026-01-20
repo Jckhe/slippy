@@ -11,8 +11,25 @@ cmds.set("slate", Slate);
 c.on("interactionCreate", async (i:any)=>{
   if(!i.isChatInputCommand()) return;
   const cmd = cmds.get(i.commandName);
-  if(cmd) await cmd.execute(i);
+  console.log(`[INTERACTION] Command: ${i.commandName} by ${i.user?.tag || 'unknown'}`);
+  if(cmd) {
+    try {
+      await cmd.execute(i);
+    } catch (error) {
+      console.error(`[INTERACTION] Error:`, error);
+      const msg = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      if (i.deferred || i.replied) {
+        await i.editReply(msg).catch(console.error);
+      } else {
+        await i.reply({ content: msg, ephemeral: true }).catch(console.error);
+      }
+    }
+  }
 });
 
-c.once("ready", ()=>console.log("Bot ready"));
+c.once("ready", ()=>{
+  console.log("✅ Bot ready");
+  console.log(`[BOT] Logged in as ${c.user?.tag}`);
+  console.log(`[BOT] Model: ${ENV.OPENAI_MODEL}`);
+});
 c.login(ENV.DISCORD_TOKEN);
