@@ -24,31 +24,37 @@ export async function execute(i:any){
     
     const r = await waitForResponse(created.id);
     console.log('[ASK] Response completed:', r.status);
-    console.log('[ASK] Full response object:', JSON.stringify(r, null, 2));
+    console.log('[ASK] Full response:', JSON.stringify(r).substring(0, 500));
     
-    // Extract output - Response API uses 'output' array with text content
-    let output = "No response available";
-    if (r.output && Array.isArray(r.output) && r.output.length > 0) {
-      // Get first output item's text content
+    // Extract output from Response API - try multiple possible structures
+    let output = "No response";
+    
+    if (r.output_text) {
+      output = r.output_text;
+    } else if (r.output && Array.isArray(r.output) && r.output.length > 0) {
       const firstOutput = r.output[0];
-      if (firstOutput.type === 'message') {
-        // Extract content from message
-        const content = firstOutput.content;
-        if (Array.isArray(content) && content.length > 0) {
-          output = content.map((c: any) => c.text || c.content || '').join('\n');
-        }
-      } else if (firstOutput.content) {
-        output = String(firstOutput.content);
+      if (typeof firstOutput === 'string') {
+        output = firstOutput;
       } else if (firstOutput.text) {
-        output = String(firstOutput.text);
+        output = firstOutput.text;
+      } else if (firstOutput.content) {
+        if (typeof firstOutput.content === 'string') {
+          output = firstOutput.content;
+        } else if (Array.isArray(firstOutput.content)) {
+          output = firstOutput.content.map((c: any) => c.text || c.content || '').join('\n');
+        }
       }
+    } else if (r.text) {
+      output = r.text;
     }
     
     console.log('[ASK] Extracted output length:', output.length);
     console.log('[ASK] Output preview:', output.substring(0, 200));
     
-    if (!output || output.length < 2) {
-      output = "⚠️ Response was empty. Try again or check logs.";
+    // Discord has 2000 char limit - truncate if needed
+    if (output.length > 1990) {
+      output = output.substring(0, 1990) + "\n...";
+      console.log('[ASK] Truncated to 1990 chars');
     }
     
     await i.editReply(output);
