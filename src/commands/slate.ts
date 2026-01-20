@@ -83,32 +83,3 @@ Format as a clean, scannable list. Keep it under 1800 characters total. Focus on
     await i.editReply(`❌ Error: ${errorMsg}`);
   }
 }
-        }
-      } else if (firstOutput.content) {
-        output = String(firstOutput.content);
-      } else if (firstOutput.text) {
-        output = String(firstOutput.text);
-      }
-    }
-    
-    console.log('[SLATE] Extracted output length:', output.length);
-    console.log('[SLATE] Output preview:', output.substring(0, 200));
-    
-    if (!output || output.length < 2) {
-      output = "⚠️ Response was empty. Try again or check logs.";
-    }
-    
-    await i.editReply(output);
-    console.log('[SLATE] Command completed');
-  } catch (error) {
-    console.error('[SLATE] ❌ ERROR DETAILS:');
-    console.error('[SLATE] Error type:', error?.constructor?.name);
-    console.error('[SLATE] Error message:', error instanceof Error ? error.message : String(error));
-    console.error('[SLATE] Stack trace:', error instanceof Error ? error.stack : 'N/A');
-    if (error && typeof error === 'object') {
-      console.error('[SLATE] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-    }
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    await i.editReply(`❌ Error: ${errorMsg}`);
-  }
-}
