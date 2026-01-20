@@ -18,7 +18,8 @@ export async function waitForResponse(responseId: string, timeout = 60000) {
     }
     
     if (response.status === 'failed' || response.status === 'cancelled') {
-      throw new Error(`Response ${response.status}: ${JSON.stringify(response.error)}`);\n    }
+      throw new Error(`Response ${response.status}: ${JSON.stringify(response.error)}`);
+    }
     
     // Wait 500ms before polling again
     await new Promise(resolve => setTimeout(resolve, 500));
