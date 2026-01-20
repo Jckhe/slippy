@@ -30,7 +30,14 @@ export async function execute(i:any){
     await i.editReply(output);
     console.log('[ASK] Command completed');
   } catch (error) {
-    console.error('[ASK] Error:', error);
-    await i.editReply(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error('[ASK] ❌ ERROR DETAILS:');
+    console.error('[ASK] Error type:', error?.constructor?.name);
+    console.error('[ASK] Error message:', error instanceof Error ? error.message : String(error));
+    console.error('[ASK] Stack trace:', error instanceof Error ? error.stack : 'N/A');
+    if (error && typeof error === 'object') {
+      console.error('[ASK] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    }
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    await i.editReply(`❌ Error: ${errorMsg}`);
   }
 }

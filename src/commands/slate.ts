@@ -31,7 +31,14 @@ export async function execute(i:any){
     await i.editReply(output);
     console.log('[SLATE] Command completed');
   } catch (error) {
-    console.error('[SLATE] Error:', error);
-    await i.editReply(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error('[SLATE] ❌ ERROR DETAILS:');
+    console.error('[SLATE] Error type:', error?.constructor?.name);
+    console.error('[SLATE] Error message:', error instanceof Error ? error.message : String(error));
+    console.error('[SLATE] Stack trace:', error instanceof Error ? error.stack : 'N/A');
+    if (error && typeof error === 'object') {
+      console.error('[SLATE] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    }
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    await i.editReply(`❌ Error: ${errorMsg}`);
   }
 }

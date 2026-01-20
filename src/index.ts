@@ -28,8 +28,17 @@ c.on("interactionCreate", async (i:any)=>{
 });
 
 c.once("ready", ()=>{
-  console.log("✅ Bot ready");
-  console.log(`[BOT] Logged in as ${c.user?.tag}`);
-  console.log(`[BOT] Model: ${ENV.OPENAI_MODEL}`);
+  console.log("\n" + "=".repeat(50));
+  console.log("✅ BOT READY");
+  console.log("=".repeat(50));
+  console.log(`[BOT] User: ${c.user?.tag}`);
+  console.log(`[BOT] OpenAI Model: ${ENV.OPENAI_MODEL}`);
+  console.log(`[BOT] OpenAI Key: ${ENV.OPENAI_API_KEY ? '✅ Set (***' + ENV.OPENAI_API_KEY.slice(-4) + ')' : '❌ Missing'}`);
+  console.log(`[BOT] Discord Token: ${ENV.DISCORD_TOKEN ? '✅ Set' : '❌ Missing'}`);
+  console.log(`[BOT] Odds API Key: ${ENV.ODDS_API_KEY ? '✅ Set (***' + ENV.ODDS_API_KEY.slice(-4) + ')' : '❌ Missing'}`);
+  console.log(`[BOT] Odds Regions: ${ENV.ODDS_REGIONS}`);
+  console.log(`[BOT] Odds Markets: ${ENV.ODDS_MARKETS}`);
+  console.log(`[BOT] Odds Bookmakers: ${ENV.ODDS_BOOKMAKERS}`);
+  console.log("=".repeat(50) + "\n");
 });
 c.login(ENV.DISCORD_TOKEN);

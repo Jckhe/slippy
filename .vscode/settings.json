@@ -1,0 +1,20 @@
+{
+  "github.copilot.chat.mcp.servers": {
+    "render": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "RENDER_API_KEY",
+        "-v",
+        "render-mcp-server-config:/config",
+        "ghcr.io/render-oss/render-mcp-server"
+      ],
+      "env": {
+        "RENDER_API_KEY": "rnd_IwGrYLvWtfNLQIJKUXQyLP9B5ROT"
+      }
+    }
+  }
+}
