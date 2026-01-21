@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from "discord.js";
-import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet } from "../lib/watchlist.js";
+import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet, getUserArchive, getUserStats, ArchivedBet } from "../lib/watchlist.js";
 
 export const data = new SlashCommandBuilder()
   .setName("watchlist")
@@ -11,6 +11,10 @@ export const data = new SlashCommandBuilder()
   .addSubcommand(sub =>
     sub.setName("history")
       .setDescription("View your bet history (resolved bets)")
+  )
+  .addSubcommand(sub =>
+    sub.setName("stats")
+      .setDescription("View your betting stats and archived history")
   )
   .addSubcommand(sub =>
     sub.setName("clear")
@@ -156,6 +160,46 @@ export async function execute(i: any) {
         content: `${emoji} Bet #${id} marked as **${outcome}**.`,
         ephemeral: true
       });
+      break;
+    }
+
+    case 'stats': {
+      const stats = getUserStats(i.user.id);
+      const archive = getUserArchive(i.user.id, 5); // Last 5 archived bets
+      
+      const embed = new EmbedBuilder()
+        .setColor(0x00BFFF)
+        .setTitle('📊 Your Betting Stats')
+        .setTimestamp();
+      
+      if (stats.total === 0) {
+        embed.setDescription('No resolved bets yet. Track some bets and wait for games to finish!');
+      } else {
+        const winRate = stats.total > 0 ? ((stats.won / (stats.won + stats.lost || 1)) * 100).toFixed(1) : '0.0';
+        
+        embed.setDescription([
+          `**📈 Overall Record:** ${stats.won}W - ${stats.lost}L - ${stats.push}P`,
+          `**🎯 Win Rate:** ${winRate}%`,
+          `**📝 Total Resolved:** ${stats.total}`,
+        ].join('\n'));
+        
+        // Show recent archive
+        if (archive.length > 0) {
+          const archiveText = archive.map(bet => {
+            const outcome = bet.outcome === 'won' ? '✅' : bet.outcome === 'lost' ? '❌' : '➖';
+            const movement = bet.line_movement ? ` (${bet.line_movement > 0 ? '+' : ''}${bet.line_movement})` : '';
+            const score = bet.final_score ? ` | Final: ${bet.final_score}` : '';
+            return `${outcome} ${bet.game}: ${bet.pick}${movement}${score}`;
+          }).join('\n');
+          
+          embed.addFields({ 
+            name: '🗄️ Recent Archived Bets', 
+            value: archiveText.substring(0, 1024) 
+          });
+        }
+      }
+      
+      await i.reply({ embeds: [embed], ephemeral: true });
       break;
     }
   }

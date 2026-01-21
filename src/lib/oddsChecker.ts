@@ -1,9 +1,10 @@
 import { Client, EmbedBuilder, TextChannel } from "discord.js";
-import { getAllWatchingBets, updateBetOdds, updateBetStatus, WatchedBet } from "./watchlist.js";
+import { getAllWatchingBets, updateBetOdds, updateBetStatus, archiveBet, archiveOldResolvedBets, WatchedBet, ArchivedBet } from "./watchlist.js";
 import { openai, waitForResponse } from "./openai.js";
 import { ENV } from "./env.js";
 
 let updateInterval: NodeJS.Timeout | null = null;
+let cleanupInterval: NodeJS.Timeout | null = null;
 
 // Start the background job for checking odds
 export function startOddsChecker(client: Client, intervalMinutes = 30) {
@@ -15,14 +16,23 @@ export function startOddsChecker(client: Client, intervalMinutes = 30) {
   updateInterval = setInterval(() => {
     checkAllBets(client);
   }, intervalMinutes * 60 * 1000);
+  
+  // Run archive cleanup every 6 hours
+  cleanupInterval = setInterval(() => {
+    archiveOldResolvedBets(24); // Archive bets resolved more than 24 hours ago
+  }, 6 * 60 * 60 * 1000);
 }
 
 export function stopOddsChecker() {
   if (updateInterval) {
     clearInterval(updateInterval);
     updateInterval = null;
-    console.log('[ODDS-CHECKER] Stopped background job');
   }
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+  console.log('[ODDS-CHECKER] Stopped background jobs');
 }
 
 async function checkAllBets(client: Client) {
@@ -112,10 +122,15 @@ Only return JSON, no other text.`;
       if (gameData.status === 'final') {
         // Determine if bet won or lost
         const outcome = determineOutcome(bet, gameData);
-        updateBetStatus(bet.id, outcome);
         
-        // Post update to channel
-        await postBetUpdate(client, bet, outcome, gameData);
+        if (outcome !== 'watching') {
+          // Archive the bet with final data
+          const finalLine = gameData.current_spread || gameData.current_total || bet.current_odds;
+          archiveBet(bet.id, outcome, finalLine, gameData.score);
+          
+          // Post update to channel
+          await postBetUpdate(client, bet, outcome, gameData);
+        }
       } else if (gameData.current_spread || gameData.current_total) {
         // Update odds if they've changed
         const newOdds = bet.bet_type === 'game' 
