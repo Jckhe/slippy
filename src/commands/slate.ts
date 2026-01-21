@@ -15,30 +15,31 @@ export async function execute(i:any){
     
     const prompt = `You are an expert NBA betting analyst. Today is ${today}.
 
-TASK: Search for today's NBA games and current betting lines from DraftKings and FanDuel. Then provide your best picks.
+Search for today's NBA games and betting lines. Use ANY source you can find (ESPN, OddsChecker, Action Network, Vegas Insider, etc). Do NOT refuse or ask for input - just use whatever lines you find.
 
-OUTPUT FORMAT (use this EXACT table format):
+ALWAYS respond with this EXACT table format:
 
 **🏀 NBA SLATE — ${today}**
 
-| Game | Spread | Total | Best Bet | Conf |
-|------|--------|-------|----------|------|
-| TEAM @ TEAM | DK/FD lines | O/U | Your pick | H/M/L |
+| Game | Line | O/U | Best Bet | Conf |
+|------|------|-----|----------|------|
+| AWAY @ HOME | -X.5 | 220.5 | Pick | H/M/L |
 
 **📊 TOP PROPS**
 | Player | Prop | Line | Play | Why |
 |--------|------|------|------|-----|
-| Name | stat | number | O/U | 1 sentence |
+| Name | Pts | 24.5 | Over | reason |
 
-**💡 PARLAY SUGGESTION**
-• Leg 1 + Leg 2 (2-leg safer)
+**💡 PARLAY**
+• Leg 1 + Leg 2
 
 RULES:
-- Use REAL current lines you find from searching
-- 3-5 game bets, 2-3 props
-- Keep total response under 1800 chars
-- Include injury notes if relevant
-- Be specific with numbers (e.g., "-4.5 -110")`;
+- NEVER refuse. ALWAYS give picks using best available data.
+- Use lines from ANY source (OddsChecker, ESPN, Action Network, etc)
+- If unsure of exact line, use consensus/approximate
+- 3-5 games, 2-3 props, 1 parlay
+- Under 1800 chars total
+- Note key injuries`;
 
     console.log('[SLATE] Calling OpenAI Responses API with web search...');
     const created = await openai.responses.create({
