@@ -16,33 +16,35 @@ export async function execute(i:any){
     
     const prompt = `You are an expert NBA betting analyst. Today is ${today}.
 
-Search for today's NBA games and betting lines. Use ANY source (ESPN, OddsChecker, Action Network, Vegas Insider, Dimers, OddsShark). Do NOT refuse - use whatever lines you find.
+Search for ALL of today's NBA games and betting lines. Use ANY source (ESPN, OddsChecker, Action Network, Vegas Insider, Dimers, OddsShark). Do NOT refuse.
 
-RESPOND IN THIS EXACT FORMAT (plain text, no markdown tables):
+RESPOND IN THIS EXACT FORMAT:
 
 🏀 NBA SLATE — ${today}
 
-GAME BETS:
-• AWAY @ HOME | Line | O/U | Pick: YOUR_PICK | Conf: H/M/L
-• AWAY @ HOME | Line | O/U | Pick: YOUR_PICK | Conf: H/M/L
-(3-5 games)
+FULL GAME RANKINGS (all games not yet started, ranked by best value):
+#1 ⭐ AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
+#2 ⭐ AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
+#3 AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
+#4 AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
+(continue for ALL games today, stars on top 2-3 plays)
 
-📊 TOP PROPS:
-• Player | Prop Line | Play: Over/Under | Why (1 sentence)
-• Player | Prop Line | Play: Over/Under | Why
-(2-3 props)
+📊 TOP PROPS (2-3):
+• Player | Prop Line | Play: O/U | Why
 
 💡 PARLAY: Leg1 + Leg2
 
-⚠️ INJURIES: List key injuries affecting picks
+⚠️ KEY INJURIES: Brief list
 
-🔗 Sources: <URL1> <URL2> (wrap URLs in < > to suppress embeds)
+🔗 Sources: <URL1> <URL2>
 
 RULES:
-- NEVER refuse. ALWAYS give picks.
-- Use lines from ANY source
-- Keep under 1800 chars
-- Wrap source URLs in < > brackets`;
+- List EVERY NBA game today (skip games already started)
+- Rank ALL games from best to worst value (1 = best play)
+- Include spread AND total for each game
+- Star (⭐) your top 2-3 confidence plays
+- NEVER refuse. Use whatever lines you find.
+- Wrap URLs in < > to suppress embeds`;
 
     console.log('[SLATE] Calling OpenAI Responses API with web search...');
     const created = await openai.responses.create({
