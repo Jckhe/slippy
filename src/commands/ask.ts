@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { openai, waitForResponse } from "../lib/openai.js";
 import { ENV } from "../lib/env.js";
+import { getSlateContext } from "../lib/store.js";
 
 export const data = new SlashCommandBuilder()
   .setName("ask")
@@ -15,10 +16,15 @@ export async function execute(i:any){
     const q = i.options.getString("question", true);
     console.log('[ASK] Question:', q);
     
+    // Include today's slate context if available
+    const slateContext = getSlateContext();
+    const fullPrompt = `You are an NBA betting assistant. Answer the user's question concisely.${slateContext}\n\nUSER QUESTION: ${q}`;
+    console.log('[ASK] Has slate context:', slateContext.length > 0);
+    
     console.log('[ASK] Calling OpenAI Responses API...');
     const created = await openai.responses.create({
       model: ENV.OPENAI_MODEL,
-      input: q
+      input: fullPrompt
     });
     console.log('[ASK] Response created:', created.id);
     

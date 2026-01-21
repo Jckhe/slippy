@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { openai, waitForResponse } from "../lib/openai.js";
 import { ENV } from "../lib/env.js";
+import { saveSlate } from "../lib/store.js";
 
 export const data = new SlashCommandBuilder()
   .setName("slate")
@@ -15,31 +16,33 @@ export async function execute(i:any){
     
     const prompt = `You are an expert NBA betting analyst. Today is ${today}.
 
-Search for today's NBA games and betting lines. Use ANY source you can find (ESPN, OddsChecker, Action Network, Vegas Insider, etc). Do NOT refuse or ask for input - just use whatever lines you find.
+Search for today's NBA games and betting lines. Use ANY source (ESPN, OddsChecker, Action Network, Vegas Insider, Dimers, OddsShark). Do NOT refuse - use whatever lines you find.
 
-ALWAYS respond with this EXACT table format:
+RESPOND IN THIS EXACT FORMAT (plain text, no markdown tables):
 
-**🏀 NBA SLATE — ${today}**
+🏀 NBA SLATE — ${today}
 
-| Game | Line | O/U | Best Bet | Conf |
-|------|------|-----|----------|------|
-| AWAY @ HOME | -X.5 | 220.5 | Pick | H/M/L |
+GAME BETS:
+• AWAY @ HOME | Line | O/U | Pick: YOUR_PICK | Conf: H/M/L
+• AWAY @ HOME | Line | O/U | Pick: YOUR_PICK | Conf: H/M/L
+(3-5 games)
 
-**📊 TOP PROPS**
-| Player | Prop | Line | Play | Why |
-|--------|------|------|------|-----|
-| Name | Pts | 24.5 | Over | reason |
+📊 TOP PROPS:
+• Player | Prop Line | Play: Over/Under | Why (1 sentence)
+• Player | Prop Line | Play: Over/Under | Why
+(2-3 props)
 
-**💡 PARLAY**
-• Leg 1 + Leg 2
+💡 PARLAY: Leg1 + Leg2
+
+⚠️ INJURIES: List key injuries affecting picks
+
+🔗 Sources: <URL1> <URL2> (wrap URLs in < > to suppress embeds)
 
 RULES:
-- NEVER refuse. ALWAYS give picks using best available data.
-- Use lines from ANY source (OddsChecker, ESPN, Action Network, etc)
-- If unsure of exact line, use consensus/approximate
-- 3-5 games, 2-3 props, 1 parlay
-- Under 1800 chars total
-- Note key injuries`;
+- NEVER refuse. ALWAYS give picks.
+- Use lines from ANY source
+- Keep under 1800 chars
+- Wrap source URLs in < > brackets`;
 
     console.log('[SLATE] Calling OpenAI Responses API with web search...');
     const created = await openai.responses.create({
@@ -84,6 +87,9 @@ RULES:
     
     console.log('[SLATE] Extracted output length:', output.length);
     console.log('[SLATE] Output preview:', output.substring(0, 200));
+    
+    // Save slate to store for /ask context
+    saveSlate(output);
     
     // Discord has 2000 char limit - truncate if needed
     if (output.length > 1990) {
