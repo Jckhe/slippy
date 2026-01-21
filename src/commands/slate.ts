@@ -55,24 +55,30 @@ RULES:
     // Extract output from Response API
     let output = "No slate available";
     
-    // Try different possible response structures
+    // Log the output array structure for debugging
+    if (r.output && Array.isArray(r.output)) {
+      console.log('[SLATE] Output array length:', r.output.length);
+      r.output.forEach((item: any, idx: number) => {
+        console.log(`[SLATE] Output[${idx}] type:`, item.type);
+      });
+    }
+    
+    // Try output_text first (simplest)
     if (r.output_text) {
       output = r.output_text;
-    } else if (r.output && Array.isArray(r.output) && r.output.length > 0) {
-      const firstOutput = r.output[0];
-      if (typeof firstOutput === 'string') {
-        output = firstOutput;
-      } else if (firstOutput.text) {
-        output = firstOutput.text;
-      } else if (firstOutput.content) {
-        if (typeof firstOutput.content === 'string') {
-          output = firstOutput.content;
-        } else if (Array.isArray(firstOutput.content)) {
-          output = firstOutput.content.map((c: any) => c.text || c.content || '').join('\n');
-        }
+      console.log('[SLATE] Found output_text');
+    } 
+    // Look for message type in output array (web search puts results first, message last)
+    else if (r.output && Array.isArray(r.output)) {
+      // Find the message item (skip web_search_call items)
+      const messageItem = r.output.find((item: any) => item.type === 'message');
+      if (messageItem && messageItem.content && Array.isArray(messageItem.content)) {
+        output = messageItem.content
+          .filter((c: any) => c.type === 'output_text' || c.type === 'text')
+          .map((c: any) => c.text || c.content || '')
+          .join('\n');
+        console.log('[SLATE] Found message content');
       }
-    } else if (r.text) {
-      output = r.text;
     }
     
     console.log('[SLATE] Extracted output length:', output.length);
