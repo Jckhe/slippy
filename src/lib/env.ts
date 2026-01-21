@@ -8,5 +8,7 @@ export const ENV = {
   ODDS_API_KEY: process.env.ODDS_API_KEY!,
   ODDS_REGIONS: process.env.ODDS_REGIONS ?? "us",
   ODDS_BOOKMAKERS: process.env.ODDS_BOOKMAKERS ?? "draftkings,fanduel",
-  ODDS_MARKETS: process.env.ODDS_MARKETS ?? "h2h,spreads,totals"
+  ODDS_MARKETS: process.env.ODDS_MARKETS ?? "h2h,spreads,totals",
+  // Data directory for persistent storage (set to Render Disk mount path in production)
+  DATA_DIR: process.env.DATA_DIR ?? "./data",
 };

@@ -1,9 +1,25 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
+import { ENV } from "./env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database(path.join(__dirname, "../../data/slate_cache.db"));
+
+// Use DATA_DIR env var for persistent storage, fallback to local ./data
+const dataDir = path.isAbsolute(ENV.DATA_DIR) 
+  ? ENV.DATA_DIR 
+  : path.join(__dirname, "../..", ENV.DATA_DIR);
+
+// Ensure data directory exists
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = path.join(dataDir, "slate_cache.db");
+console.log('[DB] Slate cache database path:', dbPath);
+
+const db = new Database(dbPath);
 
 // Create cache table
 db.exec(`

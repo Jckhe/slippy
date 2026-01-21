@@ -1,16 +1,23 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
+import { ENV } from "./env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, "../../data/watchlist.db");
+
+// Use DATA_DIR env var for persistent storage, fallback to local ./data
+const dataDir = path.isAbsolute(ENV.DATA_DIR) 
+  ? ENV.DATA_DIR 
+  : path.join(__dirname, "../..", ENV.DATA_DIR);
 
 // Ensure data directory exists
-import fs from "fs";
-const dataDir = path.join(__dirname, "../../data");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
+
+const dbPath = path.join(dataDir, "watchlist.db");
+console.log('[DB] Watchlist database path:', dbPath);
 
 const db = new Database(dbPath);
 
@@ -365,6 +372,50 @@ export function setCurrentSlate(data: any): void {
 
 export function getCurrentSlate(): any {
   return currentSlateData;
+}
+
+// Get comprehensive state stats for /state command
+export function getStateStats(): {
+  watchedBets: number;
+  archivedBets: number;
+  uniqueUsers: number;
+  resolvedBets: number;
+  wonBets: number;
+  lostBets: number;
+  pushBets: number;
+  winRate: string;
+} {
+  const watched = db.prepare(`SELECT COUNT(*) as count FROM watched_bets WHERE status = 'watching'`).get() as any;
+  const archived = db.prepare(`SELECT COUNT(*) as count FROM archived_bets`).get() as any;
+  const users = db.prepare(`SELECT COUNT(DISTINCT user_id) as count FROM watched_bets`).get() as any;
+  const resolved = db.prepare(`SELECT COUNT(*) as count FROM watched_bets WHERE status != 'watching'`).get() as any;
+  
+  // Get outcome counts from both tables
+  const wonWatched = db.prepare(`SELECT COUNT(*) as count FROM watched_bets WHERE status = 'won'`).get() as any;
+  const lostWatched = db.prepare(`SELECT COUNT(*) as count FROM watched_bets WHERE status = 'lost'`).get() as any;
+  const pushWatched = db.prepare(`SELECT COUNT(*) as count FROM watched_bets WHERE status = 'push'`).get() as any;
+  
+  const wonArchived = db.prepare(`SELECT COUNT(*) as count FROM archived_bets WHERE outcome = 'won'`).get() as any;
+  const lostArchived = db.prepare(`SELECT COUNT(*) as count FROM archived_bets WHERE outcome = 'lost'`).get() as any;
+  const pushArchived = db.prepare(`SELECT COUNT(*) as count FROM archived_bets WHERE outcome = 'push'`).get() as any;
+  
+  const won = (wonWatched?.count || 0) + (wonArchived?.count || 0);
+  const lost = (lostWatched?.count || 0) + (lostArchived?.count || 0);
+  const push = (pushWatched?.count || 0) + (pushArchived?.count || 0);
+  
+  const total = won + lost;
+  const winRate = total > 0 ? ((won / total) * 100).toFixed(1) : '0.0';
+  
+  return {
+    watchedBets: watched?.count || 0,
+    archivedBets: archived?.count || 0,
+    uniqueUsers: users?.count || 0,
+    resolvedBets: (resolved?.count || 0) + (archived?.count || 0),
+    wonBets: won,
+    lostBets: lost,
+    pushBets: push,
+    winRate
+  };
 }
 
 export default db;

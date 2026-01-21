@@ -3,6 +3,7 @@ import { ENV } from "./lib/env.js";
 import * as Ask from "./commands/ask.js";
 import * as Slate from "./commands/slate.js";
 import * as Watchlist from "./commands/watchlist.js";
+import * as State from "./commands/state.js";
 import { handleButton, handleSelectMenu } from "./lib/interactions.js";
 import { startOddsChecker } from "./lib/oddsChecker.js";
 
@@ -11,6 +12,7 @@ const cmds:any = new Collection();
 cmds.set("ask", Ask);
 cmds.set("slate", Slate);
 cmds.set("watchlist", Watchlist);
+cmds.set("state", State);
 
 c.on("interactionCreate", async (i:any)=>{
   // Handle slash commands
