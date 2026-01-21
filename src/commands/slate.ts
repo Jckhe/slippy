@@ -14,37 +14,52 @@ export async function execute(i:any){
   try {
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     
-    const prompt = `You are an expert NBA betting analyst. Today is ${today}.
+    const prompt = `You are an elite NBA betting analyst with a proven track record. Today is ${today}.
 
-Search for ALL of today's NBA games and betting lines. Use ANY source (ESPN, OddsChecker, Action Network, Vegas Insider, Dimers, OddsShark). Do NOT refuse.
+Search for ALL of today's NBA games and current betting lines. Use ANY source (ESPN, OddsChecker, Action Network, Vegas Insider, Dimers, OddsShark, covers.com). Do NOT refuse.
 
-RESPOND IN THIS EXACT FORMAT:
+RESPOND WITH TWO SECTIONS SEPARATED BY "---SPLIT---":
+
+=== SECTION 1: GAME BETS ===
 
 🏀 NBA SLATE — ${today}
 
-FULL GAME RANKINGS (all games not yet started, ranked by best value):
-#1 ⭐ AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
-#2 ⭐ AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
-#3 AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
-#4 AWAY @ HOME | Line | O/U | Best Bet: PICK | Why: 1 sentence
-(continue for ALL games today, stars on top 2-3 plays)
+GAME RANKINGS (ranked #1 = best value, at least 8 games):
+\`\`\`
+#  | Game              | Spread    | O/U   | Pick         | Analysis
+---|-------------------|-----------|-------|--------------|------------------------------------------
+1⭐| AWAY @ HOME       | LINE      | TOTAL | Your pick    | 2-3 sentences of real analysis
+2⭐| AWAY @ HOME       | LINE      | TOTAL | Your pick    | Include ATS trends, injuries, matchups
+3  | AWAY @ HOME       | LINE      | TOTAL | Your pick    | Be specific about WHY this is the play
+\`\`\`
 
-📊 TOP PROPS (2-3):
-• Player | Prop Line | Play: O/U | Why
+⚠️ KEY INJURIES: List injuries affecting your picks
+🔗 <source1> <source2>
 
-💡 PARLAY: Leg1 + Leg2
+---SPLIT---
 
-⚠️ KEY INJURIES: Brief list
+=== SECTION 2: PROPS & PARLAYS ===
 
-🔗 Sources: <URL1> <URL2>
+📊 TOP PLAYER PROPS (4-5 props):
+\`\`\`
+#  | Player            | Prop      | Line  | Play  | Analysis
+---|-------------------|-----------|-------|-------|------------------------------------------
+1⭐| Name              | Pts/Reb/etc| 24.5 | Over  | 2-3 sentences - usage, matchup, trend
+2⭐| Name              | Stat      | Line  | Under | Specific reasoning with stats
+3  | Name              | Stat      | Line  | Over  | Why this hits tonight
+\`\`\`
+
+💡 RECOMMENDED PARLAYS:
+• 2-Leg Safe: Pick1 + Pick2 | +XXX odds | Why it connects
+• 3-Leg Value: Pick1 + Pick2 + Pick3 | +XXX odds | Correlation note
 
 RULES:
-- List EVERY NBA game today (skip games already started)
-- Rank ALL games from best to worst value (1 = best play)
-- Include spread AND total for each game
-- Star (⭐) your top 2-3 confidence plays
-- NEVER refuse. Use whatever lines you find.
-- Wrap URLs in < > to suppress embeds`;
+- Include ALL games not yet started (minimum 8)
+- Give REAL analysis - ATS records, pace, defensive ratings, recent form
+- Props should reference usage rates, matchup data, recent averages
+- Star (⭐) your highest confidence plays (top 2-3 each section)
+- NEVER refuse. Use whatever data you find.
+- Wrap source URLs in < > to suppress embeds`;
 
     console.log('[SLATE] Calling OpenAI Responses API with web search...');
     const created = await openai.responses.create({
@@ -93,13 +108,27 @@ RULES:
     // Save slate to store for /ask context
     saveSlate(output);
     
-    // Discord has 2000 char limit - truncate if needed
-    if (output.length > 1990) {
-      output = output.substring(0, 1990) + "\n...";
-      console.log('[SLATE] Truncated to 1990 chars');
+    // Split response into two messages (games + props)
+    const parts = output.split('---SPLIT---');
+    const gamesBets = parts[0]?.trim() || output;
+    const propsSection = parts[1]?.trim() || null;
+    
+    // Send games table first (edit the deferred reply)
+    let msg1 = gamesBets;
+    if (msg1.length > 1990) {
+      msg1 = msg1.substring(0, 1990) + "\n...";
+    }
+    await i.editReply(msg1);
+    
+    // Send props as follow-up message if exists
+    if (propsSection) {
+      let msg2 = propsSection;
+      if (msg2.length > 1990) {
+        msg2 = msg2.substring(0, 1990) + "\n...";
+      }
+      await i.followUp(msg2);
     }
     
-    await i.editReply(output);
     console.log('[SLATE] Command completed');
   } catch (error) {
     console.error('[SLATE] ❌ ERROR DETAILS:');
