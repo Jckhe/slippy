@@ -3,18 +3,43 @@ import { ENV } from "./env.js";
 
 export const openai = new OpenAI({ apiKey: ENV.OPENAI_API_KEY });
 
-// Helper to wait for response completion with timeout
-export async function waitForResponse(responseId: string, timeout = 60000) {
+// Progress callback type
+type ProgressCallback = (message: string, elapsed: number) => Promise<void>;
+
+// Helper to wait for response completion with timeout and progress updates
+export async function waitForResponse(
+  responseId: string, 
+  timeout = 90000,
+  onProgress?: ProgressCallback
+) {
   console.log('[OPENAI] ⏳ Waiting for response:', responseId);
   const start = Date.now();
   let iterations = 0;
+  let lastProgressUpdate = 0;
+  
+  const progressMessages = [
+    "🔍 Searching for today's games...",
+    "📊 Fetching current lines...",
+    "🧠 Analyzing matchups...",
+    "📈 Checking trends & injuries...",
+    "✍️ Generating picks...",
+    "⏳ Almost done...",
+  ];
   
   while (Date.now() - start < timeout) {
     iterations++;
+    const elapsed = (Date.now() - start) / 1000;
+    
     try {
       const response = await openai.responses.retrieve(responseId);
-      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-      console.log(`[OPENAI] Iteration ${iterations} (${elapsed}s): Status = ${response.status}`);
+      console.log(`[OPENAI] Iteration ${iterations} (${elapsed.toFixed(1)}s): Status = ${response.status}`);
+      
+      // Send progress update every 3 seconds
+      if (onProgress && elapsed - lastProgressUpdate >= 3) {
+        const msgIndex = Math.min(Math.floor(elapsed / 5), progressMessages.length - 1);
+        await onProgress(progressMessages[msgIndex], elapsed);
+        lastProgressUpdate = elapsed;
+      }
       
       if (response.status === 'completed') {
         console.log('[OPENAI] ✅ Response completed successfully');
