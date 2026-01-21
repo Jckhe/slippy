@@ -3,16 +3,84 @@ import { openai, waitForResponse } from "../lib/openai.js";
 import { ENV } from "../lib/env.js";
 import { saveSlate } from "../lib/store.js";
 
+// Format styles
+type FormatStyle = 'compact' | 'card' | 'bullet';
+
 export const data = new SlashCommandBuilder()
   .setName("slate")
-  .setDescription("Today's NBA bets");
+  .setDescription("Today's NBA bets")
+  .addStringOption(option =>
+    option.setName("style")
+      .setDescription("Display format style")
+      .setRequired(false)
+      .addChoices(
+        { name: "Compact (confidence bars)", value: "compact" },
+        { name: "Card (boxed style)", value: "card" },
+        { name: "Bullet (clean bullets)", value: "bullet" }
+      )
+  );
+
+// Format helpers for each style
+function formatGameCompact(game: any): string {
+  const conf = game.star ? 80 : (game.rank <= 3 ? 65 : 50);
+  const bars = '█'.repeat(Math.floor(conf/10)) + '░'.repeat(10 - Math.floor(conf/10));
+  return `┌─────────────────────────────
+│ 📊 ${game.spread} | O/U ${game.total}
+│ 🎯 Pick: **${game.pick}**
+│ 🔥 Confidence: ${bars} ${conf}%
+└─────────────────────────────
+${game.analysis}`;
+}
+
+function formatGameCard(game: any): string {
+  const confText = game.star ? '🔥🔥🔥🔥 HIGH CONFIDENCE' : (game.rank <= 3 ? '🔥🔥🔥 MEDIUM-HIGH' : '🔥🔥 MODERATE');
+  const bullets = game.analysis.split('. ').slice(0, 3).map((s: string) => `• ${s.trim()}`).join('\n');
+  return `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 📈 ${game.spread}  │  ⚖️ O/U ${game.total}
+┃ ✅ PICK: **${game.pick}**
+┃ ${confText}
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+${bullets}
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`;
+}
+
+function formatGameBullet(game: any): string {
+  const bullets = game.analysis.split('. ').filter((s: string) => s.trim()).slice(0, 4).map((s: string) => `✓ ${s.trim()}`).join('\n');
+  return `──────────────────────
+📊 ${game.spread} | O/U ${game.total} | 🎯 **${game.pick}**
+
+${bullets}`;
+}
+
+function formatPropCompact(prop: any): string {
+  const conf = prop.star ? 80 : (prop.rank <= 2 ? 70 : 55);
+  const bars = '█'.repeat(Math.floor(conf/10)) + '░'.repeat(10 - Math.floor(conf/10));
+  return `**${prop.prop}:** ${prop.line} → **${prop.play}**
+🔥 ${bars} ${conf}%
+${prop.analysis}`;
+}
+
+function formatPropCard(prop: any): string {
+  return `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ **${prop.prop}:** ${prop.line} → **${prop.play}**
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+${prop.analysis}`;
+}
+
+function formatPropBullet(prop: any): string {
+  const bullets = prop.analysis.split('. ').filter((s: string) => s.trim()).slice(0, 3).map((s: string) => `✓ ${s.trim()}`).join('\n');
+  return `**${prop.prop}:** ${prop.line} → **${prop.play}**
+${bullets}`;
+}
 
 export async function execute(i:any){
   console.log('[SLATE] Command invoked');
   await i.deferReply();
   
   try {
+    const style: FormatStyle = (i.options.getString("style") as FormatStyle) || 'compact';
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    console.log('[SLATE] Style:', style);
     
     const prompt = `You are an elite NBA betting analyst. Today is ${today}.
 
@@ -124,13 +192,26 @@ RULES:
     const gamesEmbed = new EmbedBuilder()
       .setColor(0xFF6B35)
       .setTitle(`🏀 NBA SLATE — ${today}`)
-      .setDescription('**GAME RANKINGS** (ranked by value)')
+      .setDescription(style === 'card' ? '**━━━━━ GAME RANKINGS ━━━━━**' : '**GAME RANKINGS** (ranked by value)')
       .setTimestamp();
     
     for (const game of data.games || []) {
       const star = game.star ? '⭐ ' : '';
-      const title = `${star}#${game.rank} ${game.away} @ ${game.home}`;
-      const value = `**Line:** ${game.spread} | **O/U:** ${game.total}\n**Pick:** ${game.pick}\n${game.analysis}`;
+      const title = style === 'bullet' 
+        ? `${star}#${game.rank} | ${game.away} @ ${game.home}`
+        : `${star}#${game.rank} ${game.away.toUpperCase()} @ ${game.home.toUpperCase()}`;
+      
+      let value: string;
+      switch (style) {
+        case 'card':
+          value = formatGameCard(game);
+          break;
+        case 'bullet':
+          value = formatGameBullet(game);
+          break;
+        default: // compact
+          value = formatGameCompact(game);
+      }
       gamesEmbed.addFields({ name: title, value: value.substring(0, 1024) });
     }
     
@@ -151,7 +232,18 @@ RULES:
     for (const prop of data.props || []) {
       const star = prop.star ? '⭐ ' : '';
       const title = `${star}#${prop.rank} ${prop.player}`;
-      const value = `**${prop.prop}:** ${prop.line} → **${prop.play}**\n${prop.analysis}`;
+      
+      let value: string;
+      switch (style) {
+        case 'card':
+          value = formatPropCard(prop);
+          break;
+        case 'bullet':
+          value = formatPropBullet(prop);
+          break;
+        default: // compact
+          value = formatPropCompact(prop);
+      }
       propsEmbed.addFields({ name: title, value: value.substring(0, 1024) });
     }
     
@@ -168,7 +260,7 @@ RULES:
     await i.editReply({ content: '', embeds: [gamesEmbed] });
     await i.followUp({ embeds: [propsEmbed] });
     
-    console.log('[SLATE] Command completed with embeds');
+    console.log('[SLATE] Command completed with embeds, style:', style);
   } catch (error) {
     console.error('[SLATE] ❌ ERROR DETAILS:');
     console.error('[SLATE] Error type:', error?.constructor?.name);
