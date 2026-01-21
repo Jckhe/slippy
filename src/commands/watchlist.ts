@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from "discord.js";
-import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet, getUserArchive, getUserStats, ArchivedBet, addWatchedBet } from "../lib/watchlist.js";
+import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet, getUserArchive, getUserStats, ArchivedBet, addWatchedBet, getLastPolled } from "../lib/watchlist.js";
 
 export const data = new SlashCommandBuilder()
   .setName("watchlist")
@@ -96,23 +96,59 @@ function formatBetEmbed(bets: WatchedBet[], title: string, showStatus = false): 
     return embed;
   }
 
-  for (const bet of bets.slice(0, 10)) { // Limit to 10 fields
-    const statusEmoji = showStatus ? `${STATUS_EMOJI[bet.status]} ` : '';
-    const title = `${statusEmoji}#${bet.id} | ${bet.game}`;
+  // Add last polled info
+  const lastPolled = getLastPolled();
+  const polledStr = lastPolled 
+    ? lastPolled.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'short', timeStyle: 'short' })
+    : 'Never';
+  embed.setDescription(`📡 **Last Polled:** ${polledStr} PT`);
+
+  for (const bet of bets.slice(0, 8)) { // Limit to 8 for better formatting
+    const statusEmoji = showStatus ? `${STATUS_EMOJI[bet.status]} ` : '🎯';
+    const typeEmoji = bet.bet_type === 'prop' ? '📊' : '🏀';
     
-    let value = `**Pick:** ${bet.pick}\n**Line:** ${bet.line}`;
-    if (bet.current_odds && bet.original_odds && bet.current_odds !== bet.original_odds) {
-      value += `\n**Movement:** ${bet.original_odds} → ${bet.current_odds}`;
+    // Build card-style content
+    let value = `\`\`\`\n`;
+    value += `Pick: ${bet.pick}\n`;
+    value += `Line: ${bet.line}\n`;
+    
+    // Parse and display movement more clearly
+    if (bet.current_odds && bet.original_odds) {
+      // Extract just the numeric part for comparison
+      const origNum = parseFloat(bet.original_odds.replace(/[^-\d.]/g, '')) || 0;
+      const currNum = parseFloat(bet.current_odds.replace(/[^-\d.]/g, '')) || 0;
+      const diff = currNum - origNum;
+      
+      if (diff !== 0) {
+        const direction = diff > 0 ? '📈' : '📉';
+        const diffStr = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
+        value += `Movement: ${diffStr} ${direction}\n`;
+      } else {
+        value += `Movement: No change ➖\n`;
+      }
     }
+    
+    // Add game time if available
     if (bet.game_time) {
-      value += `\n**Time:** ${bet.game_time}`;
+      value += `Time: ${bet.game_time}\n`;
     }
     
-    embed.addFields({ name: title, value, inline: true });
+    // Add when bet was placed
+    if (bet.created_at) {
+      const placedDate = new Date(bet.created_at);
+      value += `Placed: ${placedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}\n`;
+    }
+    
+    value += `\`\`\``;
+    
+    const fieldTitle = `${statusEmoji} ${typeEmoji} #${bet.id} │ ${bet.game}`;
+    embed.addFields({ name: fieldTitle, value, inline: false });
   }
 
-  if (bets.length > 10) {
-    embed.setFooter({ text: `Showing 10 of ${bets.length} bets` });
+  if (bets.length > 8) {
+    embed.setFooter({ text: `Showing 8 of ${bets.length} bets • Use /watchlist history for resolved bets` });
+  } else {
+    embed.setFooter({ text: `${bets.length} active bet(s) • Polls every 30 min` });
   }
 
   return embed;

@@ -1,5 +1,5 @@
 import { Client, EmbedBuilder, TextChannel } from "discord.js";
-import { getAllWatchingBets, updateBetOdds, updateBetStatus, archiveBet, archiveOldResolvedBets, WatchedBet, ArchivedBet } from "./watchlist.js";
+import { getAllWatchingBets, updateBetOdds, updateBetStatus, archiveBet, archiveOldResolvedBets, WatchedBet, ArchivedBet, setLastPolled } from "./watchlist.js";
 import { openai, waitForResponse } from "./openai.js";
 import { ENV } from "./env.js";
 
@@ -48,6 +48,9 @@ export async function checkAllBetsNow(): Promise<void> {
 
 async function checkAllBets(client: Client) {
   const bets = getAllWatchingBets();
+  
+  // Update last polled time
+  setLastPolled(new Date());
   
   if (bets.length === 0) {
     console.log('[ODDS-CHECKER] No watching bets to check');

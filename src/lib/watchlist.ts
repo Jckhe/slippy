@@ -409,6 +409,7 @@ export function getBetsNeedingResolution(): WatchedBet[] {
 
 // Store current slate data for button interactions
 let currentSlateData: any = null;
+let lastPolledTime: Date | null = null;
 
 export function setCurrentSlate(data: any): void {
   currentSlateData = data;
@@ -416,6 +417,14 @@ export function setCurrentSlate(data: any): void {
 
 export function getCurrentSlate(): any {
   return currentSlateData;
+}
+
+export function setLastPolled(time: Date): void {
+  lastPolledTime = time;
+}
+
+export function getLastPolled(): Date | null {
+  return lastPolledTime;
 }
 
 // Get comprehensive state stats for /state command
