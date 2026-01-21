@@ -1,7 +1,21 @@
 import OpenAI from "openai";
 import { ENV } from "./env.js";
 
-export const openai = new OpenAI({ apiKey: ENV.OPENAI_API_KEY });
+// Lazy-init to allow deploy-commands to work without OPENAI_API_KEY
+let _openai: OpenAI | null = null;
+export function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: ENV.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+
+// Keep backward compat export (will throw if accessed without key)
+export const openai = new Proxy({} as OpenAI, {
+  get(_, prop) {
+    return (getOpenAI() as any)[prop];
+  }
+});
 
 // Progress callback type
 type ProgressCallback = (message: string, elapsed: number) => Promise<void>;
