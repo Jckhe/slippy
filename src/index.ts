@@ -1,11 +1,11 @@
-import { Client, Collection, GatewayIntentBits } from "discord.js";
+import { Client, Collection, GatewayIntentBits, ChannelType } from "discord.js";
 import { ENV } from "./lib/env.js";
 import * as Ask from "./commands/ask.js";
 import * as Slate from "./commands/slate.js";
 import * as Watchlist from "./commands/watchlist.js";
 import * as State from "./commands/state.js";
 import * as Analyze from "./commands/analyze.js";
-import { handleButton, handleSelectMenu } from "./lib/interactions.js";
+import { handleButton, handleSelectMenu, handleModalSubmit } from "./lib/interactions.js";
 import { startOddsChecker } from "./lib/oddsChecker.js";
 
 const c = new Client({ intents:[GatewayIntentBits.Guilds] });
@@ -58,6 +58,17 @@ c.on("interactionCreate", async (i:any)=>{
     }
     return;
   }
+  
+  // Handle modal submissions
+  if (i.isModalSubmit()) {
+    try {
+      await handleModalSubmit(i);
+    } catch (error) {
+      console.error('[INTERACTION] Modal error:', error);
+      await i.reply({ content: '❌ Error handling modal', ephemeral: true }).catch(console.error);
+    }
+    return;
+  }
 });
 
 c.once("ready", async ()=>{
@@ -79,9 +90,9 @@ c.once("ready", async ()=>{
         // Fetch channels since cache may be empty at startup
         await guild.channels.fetch();
         
-        // Find a suitable text channel
+        // Find a suitable text channel (GuildText = 0)
         const channel = guild.channels.cache.find(
-          (ch): ch is any => ch.type === 0 && ch.permissionsFor(c.user!)?.has('SendMessages') === true
+          (ch): ch is any => ch.type === ChannelType.GuildText && ch.permissionsFor(c.user!)?.has('SendMessages') === true
         );
         if (channel) {
           const version = process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local';

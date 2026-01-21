@@ -115,8 +115,25 @@ function initTables() {
   CREATE INDEX IF NOT EXISTS idx_archive_user ON archived_bets(user_id);
   CREATE INDEX IF NOT EXISTS idx_archive_outcome ON archived_bets(user_id, outcome);
   CREATE INDEX IF NOT EXISTS idx_archive_date ON archived_bets(resolved_at);
+  
+  -- User config table for notification preferences
+  CREATE TABLE IF NOT EXISTS user_config (
+    user_id TEXT PRIMARY KEY,
+    notifications_enabled INTEGER DEFAULT 1,
+    line_movement_alerts INTEGER DEFAULT 1,
+    movement_threshold REAL DEFAULT 0.5,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
   console.log('[DB] Watchlist tables initialized');
+}
+
+export interface UserConfig {
+  user_id: string;
+  notifications_enabled: boolean;
+  line_movement_alerts: boolean;
+  movement_threshold: number;
 }
 
 export interface WatchedBet {
@@ -443,6 +460,71 @@ export function getStateStats(): {
     pushBets: push,
     winRate
   };
+}
+
+// Get user config (with defaults)
+export function getConfig(userId: string): UserConfig {
+  const row = db.prepare(`SELECT * FROM user_config WHERE user_id = ?`).get(userId) as any;
+  
+  if (!row) {
+    return {
+      user_id: userId,
+      notifications_enabled: true,
+      line_movement_alerts: true,
+      movement_threshold: 0.5
+    };
+  }
+  
+  return {
+    user_id: row.user_id,
+    notifications_enabled: !!row.notifications_enabled,
+    line_movement_alerts: !!row.line_movement_alerts,
+    movement_threshold: row.movement_threshold || 0.5
+  };
+}
+
+// Update user config
+export function setConfig(userId: string, updates: Partial<Omit<UserConfig, 'user_id'>>): void {
+  const existing = db.prepare(`SELECT * FROM user_config WHERE user_id = ?`).get(userId);
+  
+  if (!existing) {
+    // Insert new config
+    db.prepare(`
+      INSERT INTO user_config (user_id, notifications_enabled, line_movement_alerts, movement_threshold)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      userId,
+      updates.notifications_enabled !== undefined ? (updates.notifications_enabled ? 1 : 0) : 1,
+      updates.line_movement_alerts !== undefined ? (updates.line_movement_alerts ? 1 : 0) : 1,
+      updates.movement_threshold !== undefined ? updates.movement_threshold : 0.5
+    );
+  } else {
+    // Update existing
+    const fields: string[] = [];
+    const values: any[] = [];
+    
+    if (updates.notifications_enabled !== undefined) {
+      fields.push('notifications_enabled = ?');
+      values.push(updates.notifications_enabled ? 1 : 0);
+    }
+    if (updates.line_movement_alerts !== undefined) {
+      fields.push('line_movement_alerts = ?');
+      values.push(updates.line_movement_alerts ? 1 : 0);
+    }
+    if (updates.movement_threshold !== undefined) {
+      fields.push('movement_threshold = ?');
+      values.push(updates.movement_threshold);
+    }
+    
+    if (fields.length > 0) {
+      fields.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(userId);
+      
+      db.prepare(`UPDATE user_config SET ${fields.join(', ')} WHERE user_id = ?`).run(...values);
+    }
+  }
+  
+  console.log('[CONFIG] Updated config for', userId, updates);
 }
 
 export default db;

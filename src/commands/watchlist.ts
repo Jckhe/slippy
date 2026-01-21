@@ -127,7 +127,20 @@ export async function execute(i: any) {
       const bets = getUserWatchlist(i.user.id);
       const embed = formatBetEmbed(bets, '👀 Your Watchlist');
       
-      // Add remove buttons if there are bets
+      // Create action buttons row
+      const refreshBtn = new ButtonBuilder()
+        .setCustomId('watchlist_refresh')
+        .setLabel('🔄 Refresh')
+        .setStyle(ButtonStyle.Secondary);
+      
+      const configBtn = new ButtonBuilder()
+        .setCustomId('watchlist_config')
+        .setLabel('⚙️ Configure')
+        .setStyle(ButtonStyle.Secondary);
+      
+      const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(refreshBtn, configBtn);
+      
+      // Add remove dropdown if there are bets
       if (bets.length > 0) {
         const selectMenu = new StringSelectMenuBuilder()
           .setCustomId('watchlist_remove')
@@ -140,10 +153,10 @@ export async function execute(i: any) {
             }))
           );
         
-        const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
-        await i.reply({ embeds: [embed], components: [row], ephemeral: true });
+        const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+        await i.reply({ embeds: [embed], components: [buttonRow, selectRow], ephemeral: true });
       } else {
-        await i.reply({ embeds: [embed], ephemeral: true });
+        await i.reply({ embeds: [embed], components: [buttonRow], ephemeral: true });
       }
       break;
     }

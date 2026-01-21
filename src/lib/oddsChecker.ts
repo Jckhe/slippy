@@ -5,10 +5,12 @@ import { ENV } from "./env.js";
 
 let updateInterval: NodeJS.Timeout | null = null;
 let cleanupInterval: NodeJS.Timeout | null = null;
+let lastClient: Client | null = null;
 
 // Start the background job for checking odds
 export function startOddsChecker(client: Client, intervalMinutes = 30) {
   console.log(`[ODDS-CHECKER] Starting background job (every ${intervalMinutes} min)`);
+  lastClient = client;
   
   // Run immediately on start, then every X minutes
   checkAllBets(client);
@@ -33,6 +35,15 @@ export function stopOddsChecker() {
     cleanupInterval = null;
   }
   console.log('[ODDS-CHECKER] Stopped background jobs');
+}
+
+// Manual trigger for refresh
+export async function checkAllBetsNow(): Promise<void> {
+  if (lastClient) {
+    await checkAllBets(lastClient);
+  } else {
+    console.log('[ODDS-CHECKER] No client available for manual refresh');
+  }
 }
 
 async function checkAllBets(client: Client) {

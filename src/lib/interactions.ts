@@ -1,5 +1,6 @@
-import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import { addWatchedBet, getCurrentSlate, removeBet, getUserWatchlist } from "../lib/watchlist.js";
+import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
+import { addWatchedBet, getCurrentSlate, removeBet, getUserWatchlist, getConfig, setConfig } from "../lib/watchlist.js";
+import { checkAllBetsNow } from "./oddsChecker.js";
 
 // Handle button interactions
 export async function handleButton(interaction: any) {
@@ -8,8 +9,16 @@ export async function handleButton(interaction: any) {
 
   if (customId === 'track_bets') {
     await handleTrackBetsButton(interaction);
-  } else if (customId === 'refresh_watchlist') {
-    await handleRefreshWatchlist(interaction);
+  } else if (customId === 'watchlist_refresh') {
+    await handleWatchlistRefresh(interaction);
+  } else if (customId === 'watchlist_config') {
+    await handleWatchlistConfig(interaction);
+  } else if (customId === 'config_toggle_notifications') {
+    await handleConfigToggle(interaction, 'notifications_enabled');
+  } else if (customId === 'config_toggle_alerts') {
+    await handleConfigToggle(interaction, 'line_movement_alerts');
+  } else if (customId === 'config_threshold') {
+    await handleConfigThreshold(interaction);
   }
 }
 
@@ -24,6 +33,32 @@ export async function handleSelectMenu(interaction: any) {
     await handleTrackPropsSelect(interaction);
   } else if (customId === 'watchlist_remove') {
     await handleWatchlistRemove(interaction);
+  }
+}
+
+// Handle modal submissions
+export async function handleModalSubmit(interaction: any) {
+  const customId = interaction.customId;
+  console.log('[INTERACTIONS] Modal:', customId);
+
+  if (customId === 'config_threshold_modal') {
+    const thresholdStr = interaction.fields.getTextInputValue('threshold_value');
+    const threshold = parseFloat(thresholdStr);
+    
+    if (isNaN(threshold) || threshold < 0 || threshold > 10) {
+      await interaction.reply({
+        content: '❌ Invalid threshold. Please enter a number between 0 and 10.',
+        ephemeral: true
+      });
+      return;
+    }
+    
+    setConfig(interaction.user.id, { movement_threshold: threshold });
+    
+    await interaction.reply({
+      content: `✅ Movement threshold set to **${threshold} points**. You'll be alerted when lines move by this amount or more.`,
+      ephemeral: true
+    });
   }
 }
 
@@ -221,9 +256,135 @@ async function handleWatchlistRemove(interaction: any) {
   }
 }
 
-async function handleRefreshWatchlist(interaction: any) {
+// Manual refresh - triggers immediate odds check for user's bets
+async function handleWatchlistRefresh(interaction: any) {
+  await interaction.deferReply({ ephemeral: true });
+  
+  try {
+    // Get fresh watchlist
+    const bets = getUserWatchlist(interaction.user.id);
+    
+    if (bets.length === 0) {
+      await interaction.editReply('📭 No bets to refresh.');
+      return;
+    }
+    
+    // Trigger manual check
+    await checkAllBetsNow();
+    
+    // Show updated watchlist
+    const embed = new EmbedBuilder()
+      .setColor(0x00FF00)
+      .setTitle('🔄 Watchlist Refreshed')
+      .setDescription(`Checked ${bets.length} bet(s) for updates.`)
+      .setTimestamp();
+    
+    for (const bet of bets.slice(0, 5)) {
+      const movement = bet.current_odds && bet.original_odds && bet.current_odds !== bet.original_odds
+        ? `📈 ${bet.original_odds} → ${bet.current_odds}`
+        : '➖ No movement';
+      
+      embed.addFields({
+        name: `#${bet.id} ${bet.game}`,
+        value: `**Pick:** ${bet.pick}\n${movement}`,
+        inline: true
+      });
+    }
+    
+    if (bets.length > 5) {
+      embed.setFooter({ text: `Showing 5 of ${bets.length} bets` });
+    }
+    
+    await interaction.editReply({ embeds: [embed] });
+    console.log('[INTERACTIONS] Manual refresh completed for', interaction.user.id);
+    
+  } catch (error) {
+    console.error('[INTERACTIONS] Refresh error:', error);
+    await interaction.editReply('❌ Error refreshing watchlist.');
+  }
+}
+
+// Configure watchlist settings
+async function handleWatchlistConfig(interaction: any) {
+  const config = getConfig(interaction.user.id);
+  
+  const embed = new EmbedBuilder()
+    .setColor(0x9B59B6)
+    .setTitle('⚙️ Watchlist Configuration')
+    .setDescription('Current settings for your watchlist notifications')
+    .addFields(
+      { 
+        name: '🔔 Notifications', 
+        value: config.notifications_enabled ? '✅ Enabled' : '❌ Disabled', 
+        inline: true 
+      },
+      { 
+        name: '📊 Line Movement Alerts', 
+        value: config.line_movement_alerts ? '✅ Enabled' : '❌ Disabled', 
+        inline: true 
+      },
+      { 
+        name: '🎯 Movement Threshold', 
+        value: `${config.movement_threshold} points`, 
+        inline: true 
+      }
+    )
+    .setFooter({ text: 'Use buttons below to toggle settings' });
+  
+  const notifyBtn = new ButtonBuilder()
+    .setCustomId('config_toggle_notifications')
+    .setLabel(config.notifications_enabled ? '🔕 Disable Notifications' : '🔔 Enable Notifications')
+    .setStyle(config.notifications_enabled ? ButtonStyle.Secondary : ButtonStyle.Success);
+  
+  const alertsBtn = new ButtonBuilder()
+    .setCustomId('config_toggle_alerts')
+    .setLabel(config.line_movement_alerts ? '📉 Disable Alerts' : '📈 Enable Alerts')
+    .setStyle(config.line_movement_alerts ? ButtonStyle.Secondary : ButtonStyle.Success);
+  
+  const thresholdBtn = new ButtonBuilder()
+    .setCustomId('config_threshold')
+    .setLabel('🎯 Set Threshold')
+    .setStyle(ButtonStyle.Primary);
+  
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(notifyBtn, alertsBtn, thresholdBtn);
+  
+  await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+}
+
+// Toggle a config setting
+async function handleConfigToggle(interaction: any, setting: 'notifications_enabled' | 'line_movement_alerts') {
+  const config = getConfig(interaction.user.id);
+  const newValue = !config[setting];
+  
+  setConfig(interaction.user.id, { [setting]: newValue });
+  
+  const settingName = setting === 'notifications_enabled' ? 'Notifications' : 'Line Movement Alerts';
+  const emoji = newValue ? '✅' : '❌';
+  
   await interaction.reply({
-    content: '🔄 Refreshing watchlist...',
+    content: `${emoji} **${settingName}** ${newValue ? 'enabled' : 'disabled'}.`,
     ephemeral: true
   });
+}
+
+// Set threshold via modal
+async function handleConfigThreshold(interaction: any) {
+  const config = getConfig(interaction.user.id);
+  
+  const modal = new ModalBuilder()
+    .setCustomId('config_threshold_modal')
+    .setTitle('Set Movement Threshold');
+  
+  const thresholdInput = new TextInputBuilder()
+    .setCustomId('threshold_value')
+    .setLabel('Alert when line moves by (points)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('0.5')
+    .setValue(config.movement_threshold.toString())
+    .setRequired(true);
+  
+  const row = new ActionRowBuilder<TextInputBuilder>().addComponents(thresholdInput);
+  modal.addComponents(row);
+  
+  await interaction.showModal(modal);
 }
