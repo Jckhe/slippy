@@ -6,23 +6,48 @@ import { ENV } from "./env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Use DATA_DIR env var for persistent storage, fallback to local ./data
-const dataDir = path.isAbsolute(ENV.DATA_DIR) 
-  ? ENV.DATA_DIR 
-  : path.join(__dirname, "../..", ENV.DATA_DIR);
+// Lazy DB initialization - only create when actually needed (not during build)
+let _db: Database.Database | null = null;
+let _initialized = false;
 
-// Ensure data directory exists
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function getDataDir(): string {
+  return path.isAbsolute(ENV.DATA_DIR) 
+    ? ENV.DATA_DIR 
+    : path.join(__dirname, "../..", ENV.DATA_DIR);
 }
 
-const dbPath = path.join(dataDir, "slate_cache.db");
-console.log('[DB] Slate cache database path:', dbPath);
+function getDb(): Database.Database {
+  if (!_db) {
+    const dataDir = getDataDir();
+    
+    // Ensure data directory exists
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    
+    const dbPath = path.join(dataDir, "slate_cache.db");
+    console.log('[DB] Slate cache database path:', dbPath);
+    _db = new Database(dbPath);
+    
+    // Initialize tables on first access
+    if (!_initialized) {
+      initCacheTable();
+      _initialized = true;
+    }
+  }
+  return _db;
+}
 
-const db = new Database(dbPath);
+// Shorthand for queries  
+const db = new Proxy({} as Database.Database, {
+  get(_, prop) {
+    return (getDb() as any)[prop];
+  }
+});
 
-// Create cache table
-db.exec(`
+// Initialize cache table (called lazily on first DB access)
+function initCacheTable() {
+  getDb().exec(`
   CREATE TABLE IF NOT EXISTS slate_cache (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     date TEXT NOT NULL,
@@ -32,6 +57,8 @@ db.exec(`
     sources TEXT
   )
 `);
+  console.log('[DB] Slate cache table initialized');
+}
 
 export interface CachedSlate {
   date: string;

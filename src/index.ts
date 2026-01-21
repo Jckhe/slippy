@@ -58,7 +58,7 @@ c.on("interactionCreate", async (i:any)=>{
   }
 });
 
-c.once("ready", ()=>{
+c.once("ready", async ()=>{
   console.log("\n" + "=".repeat(50));
   console.log("✅ BOT READY");
   console.log("=".repeat(50));
@@ -66,7 +66,30 @@ c.once("ready", ()=>{
   console.log(`[BOT] OpenAI Model: ${ENV.OPENAI_MODEL}`);
   console.log(`[BOT] OpenAI Key: ${ENV.OPENAI_API_KEY ? '✅ Set (***' + ENV.OPENAI_API_KEY.slice(-4) + ')' : '❌ Missing'}`);
   console.log(`[BOT] Discord Token: ${ENV.DISCORD_TOKEN ? '✅ Set' : '❌ Missing'}`);
+  console.log(`[BOT] Data Dir: ${ENV.DATA_DIR}`);
   console.log("=".repeat(50));
+  
+  // Send startup message to configured channel
+  if (ENV.DISCORD_GUILD_ID) {
+    try {
+      const guild = c.guilds.cache.get(ENV.DISCORD_GUILD_ID);
+      if (guild) {
+        // Find a suitable channel (first text channel the bot can send to)
+        const channel = guild.channels.cache.find(
+          (ch): ch is any => ch.isTextBased() && !ch.isVoice() && ch.permissionsFor(c.user!)?.has('SendMessages') === true
+        );
+        if (channel) {
+          const version = process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local';
+          await channel.send({
+            content: `🟢 **Bot Online** | v${version} | ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'short', timeStyle: 'short' })} PT`
+          });
+          console.log(`[BOT] Startup message sent to #${channel.name}`);
+        }
+      }
+    } catch (err) {
+      console.error('[BOT] Failed to send startup message:', err);
+    }
+  }
   
   // Start the background odds checker (every 30 minutes)
   startOddsChecker(c, 30);

@@ -6,23 +6,48 @@ import { ENV } from "./env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Use DATA_DIR env var for persistent storage, fallback to local ./data
-const dataDir = path.isAbsolute(ENV.DATA_DIR) 
-  ? ENV.DATA_DIR 
-  : path.join(__dirname, "../..", ENV.DATA_DIR);
+// Lazy DB initialization - only create when actually needed (not during build)
+let _db: Database.Database | null = null;
+let _initialized = false;
 
-// Ensure data directory exists
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function getDataDir(): string {
+  return path.isAbsolute(ENV.DATA_DIR) 
+    ? ENV.DATA_DIR 
+    : path.join(__dirname, "../..", ENV.DATA_DIR);
 }
 
-const dbPath = path.join(dataDir, "watchlist.db");
-console.log('[DB] Watchlist database path:', dbPath);
+function getDb(): Database.Database {
+  if (!_db) {
+    const dataDir = getDataDir();
+    
+    // Ensure data directory exists
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    
+    const dbPath = path.join(dataDir, "watchlist.db");
+    console.log('[DB] Watchlist database path:', dbPath);
+    _db = new Database(dbPath);
+    
+    // Initialize tables on first access
+    if (!_initialized) {
+      initTables();
+      _initialized = true;
+    }
+  }
+  return _db;
+}
 
-const db = new Database(dbPath);
+// Shorthand for queries
+const db = new Proxy({} as Database.Database, {
+  get(_, prop) {
+    return (getDb() as any)[prop];
+  }
+});
 
-// Initialize tables
-db.exec(`
+// Initialize tables (called lazily on first DB access)
+function initTables() {
+  getDb().exec(`
   CREATE TABLE IF NOT EXISTS watched_bets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -91,6 +116,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_archive_outcome ON archived_bets(user_id, outcome);
   CREATE INDEX IF NOT EXISTS idx_archive_date ON archived_bets(resolved_at);
 `);
+  console.log('[DB] Watchlist tables initialized');
+}
 
 export interface WatchedBet {
   id: number;
