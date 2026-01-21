@@ -11,25 +11,40 @@ export async function execute(i:any){
   await i.deferReply();
   
   try {
-    const prompt = `You are an expert NBA bettor. Analyze today's NBA games and provide:
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    
+    const prompt = `You are an expert NBA betting analyst. Today is ${today}.
 
-1. Best 3-5 game bets (spreads, ML, totals) with:
-   - Current lines from major books (DraftKings, FanDuel)
-   - Your recommended bet
-   - Confidence level (High/Medium/Low)
-   - Key reasoning (1-2 sentences)
+TASK: Search for today's NBA games and current betting lines from DraftKings and FanDuel. Then provide your best picks.
 
-2. Top 2-3 player props with:
-   - Player, prop, line
-   - Recommended play
-   - Brief rationale
+OUTPUT FORMAT (use this EXACT table format):
 
-Format as a clean, scannable list. Keep it under 1800 characters total. Focus on value plays with real analysis.`;
+**🏀 NBA SLATE — ${today}**
 
-    console.log('[SLATE] Calling OpenAI Responses API...');
+| Game | Spread | Total | Best Bet | Conf |
+|------|--------|-------|----------|------|
+| TEAM @ TEAM | DK/FD lines | O/U | Your pick | H/M/L |
+
+**📊 TOP PROPS**
+| Player | Prop | Line | Play | Why |
+|--------|------|------|------|-----|
+| Name | stat | number | O/U | 1 sentence |
+
+**💡 PARLAY SUGGESTION**
+• Leg 1 + Leg 2 (2-leg safer)
+
+RULES:
+- Use REAL current lines you find from searching
+- 3-5 game bets, 2-3 props
+- Keep total response under 1800 chars
+- Include injury notes if relevant
+- Be specific with numbers (e.g., "-4.5 -110")`;
+
+    console.log('[SLATE] Calling OpenAI Responses API with web search...');
     const created = await openai.responses.create({
       model: ENV.OPENAI_MODEL,
-      input: prompt
+      input: prompt,
+      tools: [{ type: "web_search_preview" }]
     });
     console.log('[SLATE] Response created:', created.id);
     
