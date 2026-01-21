@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from "discord.js";
-import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet, getUserArchive, getUserStats, ArchivedBet } from "../lib/watchlist.js";
+import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet, getUserArchive, getUserStats, ArchivedBet, addWatchedBet } from "../lib/watchlist.js";
 
 export const data = new SlashCommandBuilder()
   .setName("watchlist")
@@ -7,6 +7,34 @@ export const data = new SlashCommandBuilder()
   .addSubcommand(sub =>
     sub.setName("view")
       .setDescription("View your current watchlist")
+  )
+  .addSubcommand(sub =>
+    sub.setName("add")
+      .setDescription("Manually add a bet to track")
+      .addStringOption(opt =>
+        opt.setName("type")
+          .setDescription("Type of bet")
+          .setRequired(true)
+          .addChoices(
+            { name: "🏀 Game (spread/ML/total)", value: "game" },
+            { name: "📊 Player Prop", value: "prop" }
+          )
+      )
+      .addStringOption(opt =>
+        opt.setName("game")
+          .setDescription("The game (e.g., 'Lakers @ Celtics')")
+          .setRequired(true)
+      )
+      .addStringOption(opt =>
+        opt.setName("pick")
+          .setDescription("Your pick (e.g., 'Lakers -3.5' or 'LeBron Over 25.5 pts')")
+          .setRequired(true)
+      )
+      .addStringOption(opt =>
+        opt.setName("line")
+          .setDescription("The line/odds (e.g., '-110' or '-3.5 (-110)')")
+          .setRequired(false)
+      )
   )
   .addSubcommand(sub =>
     sub.setName("history")
@@ -135,6 +163,45 @@ export async function execute(i: any) {
       }
       
       await i.reply({ embeds: [embed], ephemeral: true });
+      break;
+    }
+
+    case 'add': {
+      const betType = i.options.getString('type', true) as 'game' | 'prop';
+      const game = i.options.getString('game', true);
+      const pick = i.options.getString('pick', true);
+      const line = i.options.getString('line') || 'N/A';
+      
+      const betId = addWatchedBet({
+        user_id: i.user.id,
+        guild_id: i.guildId || '',
+        channel_id: i.channelId || '',
+        message_id: null,
+        bet_type: betType,
+        game: game,
+        pick: pick,
+        line: line,
+        original_odds: line,
+        current_odds: line,
+        analysis: 'Manually added',
+        game_time: null
+      });
+      
+      const embed = new EmbedBuilder()
+        .setColor(0x00FF00)
+        .setTitle('✅ Bet Added to Watchlist')
+        .addFields(
+          { name: '🎮 Game', value: game, inline: true },
+          { name: '🎯 Pick', value: pick, inline: true },
+          { name: '📊 Line', value: line, inline: true },
+          { name: '🏷️ Type', value: betType === 'game' ? '🏀 Game' : '📊 Player Prop', inline: true },
+          { name: '🆔 Bet ID', value: `#${betId}`, inline: true }
+        )
+        .setFooter({ text: 'Use /watchlist resolve to mark outcome' })
+        .setTimestamp();
+      
+      await i.reply({ embeds: [embed], ephemeral: true });
+      console.log('[WATCHLIST] Manual bet added:', betId, game, pick);
       break;
     }
 

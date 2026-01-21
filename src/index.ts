@@ -4,6 +4,7 @@ import * as Ask from "./commands/ask.js";
 import * as Slate from "./commands/slate.js";
 import * as Watchlist from "./commands/watchlist.js";
 import * as State from "./commands/state.js";
+import * as Analyze from "./commands/analyze.js";
 import { handleButton, handleSelectMenu } from "./lib/interactions.js";
 import { startOddsChecker } from "./lib/oddsChecker.js";
 
@@ -13,6 +14,7 @@ cmds.set("ask", Ask);
 cmds.set("slate", Slate);
 cmds.set("watchlist", Watchlist);
 cmds.set("state", State);
+cmds.set("analyze", Analyze);
 
 c.on("interactionCreate", async (i:any)=>{
   // Handle slash commands
@@ -72,11 +74,14 @@ c.once("ready", async ()=>{
   // Send startup message to configured channel
   if (ENV.DISCORD_GUILD_ID) {
     try {
-      const guild = c.guilds.cache.get(ENV.DISCORD_GUILD_ID);
+      const guild = await c.guilds.fetch(ENV.DISCORD_GUILD_ID);
       if (guild) {
-        // Find a suitable channel (first text channel the bot can send to)
+        // Fetch channels since cache may be empty at startup
+        await guild.channels.fetch();
+        
+        // Find a suitable text channel
         const channel = guild.channels.cache.find(
-          (ch): ch is any => ch.isTextBased() && !ch.isVoice() && ch.permissionsFor(c.user!)?.has('SendMessages') === true
+          (ch): ch is any => ch.type === 0 && ch.permissionsFor(c.user!)?.has('SendMessages') === true
         );
         if (channel) {
           const version = process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'local';
@@ -84,6 +89,8 @@ c.once("ready", async ()=>{
             content: `🟢 **Bot Online** | v${version} | ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'short', timeStyle: 'short' })} PT`
           });
           console.log(`[BOT] Startup message sent to #${channel.name}`);
+        } else {
+          console.log('[BOT] No suitable channel found for startup message');
         }
       }
     } catch (err) {
