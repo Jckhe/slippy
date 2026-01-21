@@ -187,7 +187,8 @@ export async function execute(i: any) {
         if (archive.length > 0) {
           const archiveText = archive.map(bet => {
             const outcome = bet.outcome === 'won' ? '✅' : bet.outcome === 'lost' ? '❌' : '➖';
-            const movement = bet.line_movement ? ` (${bet.line_movement > 0 ? '+' : ''}${bet.line_movement})` : '';
+            const movementNum = bet.line_movement ? parseFloat(bet.line_movement) : 0;
+            const movement = bet.line_movement ? ` (${movementNum > 0 ? '+' : ''}${bet.line_movement})` : '';
             const score = bet.final_score ? ` | Final: ${bet.final_score}` : '';
             return `${outcome} ${bet.game}: ${bet.pick}${movement}${score}`;
           }).join('\n');

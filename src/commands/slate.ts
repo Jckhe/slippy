@@ -3,6 +3,7 @@ import { openai, waitForResponse } from "../lib/openai.js";
 import { ENV } from "../lib/env.js";
 import { saveSlate } from "../lib/store.js";
 import { setCurrentSlate } from "../lib/watchlist.js";
+import { getCachedSlate, saveSlateToCache, getCacheAgeMinutes } from "../lib/slateCache.js";
 
 // Format styles
 type FormatStyle = 'compact' | 'card' | 'bullet';
@@ -19,6 +20,11 @@ export const data = new SlashCommandBuilder()
         { name: "Card (boxed style)", value: "card" },
         { name: "Bullet (clean bullets)", value: "bullet" }
       )
+  )
+  .addBooleanOption(option =>
+    option.setName("refresh")
+      .setDescription("Force refresh (ignore cache)")
+      .setRequired(false)
   );
 
 // Format helpers for each style
@@ -80,10 +86,30 @@ export async function execute(i:any){
   
   try {
     const style: FormatStyle = (i.options.getString("style") as FormatStyle) || 'compact';
+    const forceRefresh = i.options.getBoolean("refresh") || false;
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    console.log('[SLATE] Style:', style);
+    console.log('[SLATE] Style:', style, '| Force refresh:', forceRefresh);
     
-    const prompt = `You are an elite NBA betting analyst. Today is ${today}.
+    let data: any;
+    let rawOutput: string;
+    let fromCache = false;
+    
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+      const cached = getCachedSlate();
+      if (cached) {
+        data = cached.slateJson;
+        rawOutput = cached.rawOutput;
+        fromCache = true;
+        const cacheAge = getCacheAgeMinutes();
+        console.log('[SLATE] Using cached slate, age:', cacheAge, 'minutes');
+        await i.editReply(`📋 Loading cached slate (${cacheAge}m old)...`);
+      }
+    }
+    
+    // Generate fresh slate if needed
+    if (!data) {
+      const prompt = `You are an elite NBA betting analyst. Today is ${today}.
 
 Search for ALL of today's NBA games and betting lines. Use ANY source (ESPN, OddsChecker, Action Network, Dimers, OddsShark, covers.com).
 
@@ -132,68 +158,71 @@ RULES:
 - REAL analysis - ATS records, pace, injuries, trends
 - NEVER refuse. Output valid JSON only.`;
 
-    console.log('[SLATE] Calling OpenAI Responses API with web search...');
-    await i.editReply("🔍 Searching for today's games...");
-    
-    const created = await openai.responses.create({
-      model: ENV.OPENAI_MODEL,
-      input: prompt,
-      tools: [{ type: "web_search_preview" }]
-    });
-    console.log('[SLATE] Response created:', created.id);
-    
-    // Progress callback to update Discord message
-    const onProgress = async (message: string, elapsed: number) => {
-      try {
-        await i.editReply(`${message} (${elapsed.toFixed(0)}s)`);
-      } catch (e) {
-        console.log('[SLATE] Progress update skipped');
+      console.log('[SLATE] Calling OpenAI Responses API with web search...');
+      await i.editReply("🔍 Searching for today's games...");
+      
+      const created = await openai.responses.create({
+        model: ENV.OPENAI_MODEL,
+        input: prompt,
+        tools: [{ type: "web_search_preview" }]
+      });
+      console.log('[SLATE] Response created:', created.id);
+      
+      // Progress callback to update Discord message
+      const onProgress = async (message: string, elapsed: number) => {
+        try {
+          await i.editReply(`${message} (${elapsed.toFixed(0)}s)`);
+        } catch (e) {
+          console.log('[SLATE] Progress update skipped');
+        }
+      };
+      
+      const r = await waitForResponse(created.id, 90000, onProgress);
+      console.log('[SLATE] Response completed:', r.status);
+      
+      // Extract output from Response API
+      let output = "";
+      if (r.output_text) {
+        output = r.output_text;
+      } else if (r.output && Array.isArray(r.output)) {
+        const messageItem = r.output.find((item: any) => item.type === 'message');
+        if (messageItem?.content && Array.isArray(messageItem.content)) {
+          output = messageItem.content
+            .filter((c: any) => c.type === 'output_text' || c.type === 'text')
+            .map((c: any) => c.text || c.content || '')
+            .join('\n');
+        }
       }
-    };
-    
-    const r = await waitForResponse(created.id, 90000, onProgress);
-    console.log('[SLATE] Response completed:', r.status);
-    
-    // Extract output from Response API
-    let output = "";
-    if (r.output_text) {
-      output = r.output_text;
-    } else if (r.output && Array.isArray(r.output)) {
-      const messageItem = r.output.find((item: any) => item.type === 'message');
-      if (messageItem?.content && Array.isArray(messageItem.content)) {
-        output = messageItem.content
-          .filter((c: any) => c.type === 'output_text' || c.type === 'text')
-          .map((c: any) => c.text || c.content || '')
-          .join('\n');
+      
+      console.log('[SLATE] Raw output:', output.substring(0, 500));
+      rawOutput = output;
+      
+      // Parse JSON from response (handle markdown code blocks)
+      let jsonStr = output;
+      const jsonMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1];
+      }
+      
+      try {
+        data = JSON.parse(jsonStr);
+        // Cache the successful result
+        saveSlateToCache(data, rawOutput, data.sources || []);
+      } catch (e) {
+        console.error('[SLATE] JSON parse error, falling back to raw output');
+        await i.editReply(output.substring(0, 1990));
+        return;
       }
     }
-    
-    console.log('[SLATE] Raw output:', output.substring(0, 500));
     
     // Save raw output for /ask context
-    saveSlate(output);
-    
-    // Parse JSON from response (handle markdown code blocks)
-    let jsonStr = output;
-    const jsonMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1];
-    }
-    
-    let data: any;
-    try {
-      data = JSON.parse(jsonStr);
-    } catch (e) {
-      console.error('[SLATE] JSON parse error, falling back to raw output');
-      await i.editReply(output.substring(0, 1990));
-      return;
-    }
+    saveSlate(rawOutput!);
     
     // Build GAMES embed
     const gamesEmbed = new EmbedBuilder()
       .setColor(0xFF6B35)
       .setTitle(`🏀 NBA SLATE — ${today}`)
-      .setDescription(style === 'card' ? '**━━━━━ GAME RANKINGS ━━━━━**' : '**GAME RANKINGS** (ranked by value)')
+      .setDescription(style === 'card' ? '**━━━━━ GAME RANKINGS ━━━━━**' : `**GAME RANKINGS** (ranked by value)${fromCache ? `\n*📋 Cached ${getCacheAgeMinutes()}m ago — use \`/slate refresh:True\` for fresh picks*` : ''}`)
       .setTimestamp();
     
     for (const game of data.games || []) {
