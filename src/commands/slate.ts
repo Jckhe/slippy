@@ -1,7 +1,8 @@
-import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { openai, waitForResponse } from "../lib/openai.js";
 import { ENV } from "../lib/env.js";
 import { saveSlate } from "../lib/store.js";
+import { setCurrentSlate } from "../lib/watchlist.js";
 
 // Format styles
 type FormatStyle = 'compact' | 'card' | 'bullet';
@@ -256,9 +257,20 @@ RULES:
       propsEmbed.addFields({ name: '💡 RECOMMENDED PARLAYS', value: parlayText.substring(0, 1024) });
     }
     
-    // Send both embeds
+    // Store slate data for watchlist feature
+    setCurrentSlate(data);
+    
+    // Create "Track Bets" button
+    const trackButton = new ButtonBuilder()
+      .setCustomId('track_bets')
+      .setLabel('📋 Track Bets')
+      .setStyle(ButtonStyle.Primary);
+    
+    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(trackButton);
+    
+    // Send both embeds with track button on the second one
     await i.editReply({ content: '', embeds: [gamesEmbed] });
-    await i.followUp({ embeds: [propsEmbed] });
+    await i.followUp({ embeds: [propsEmbed], components: [buttonRow] });
     
     console.log('[SLATE] Command completed with embeds, style:', style);
   } catch (error) {
