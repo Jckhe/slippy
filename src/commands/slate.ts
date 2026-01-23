@@ -4,6 +4,7 @@ import { ENV } from "../lib/env.js";
 import { saveSlate } from "../lib/store.js";
 import { setCurrentSlate } from "../lib/watchlist.js";
 import { getCachedSlate, saveSlateToCache, getCacheAgeMinutes } from "../lib/slateCache.js";
+import { calculateBetValue, formatValueScore, getValueTier } from "../lib/valueCalc.js";
 
 // PST timestamp helper
 function getPSTTimestamp(): string {
@@ -12,6 +13,9 @@ function getPSTTimestamp(): string {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
   }) + ' PT';
 }
+
+// Ranking type
+type RecType = 'chance' | 'value';
 
 // Format styles
 type FormatStyle = 'compact' | 'card' | 'bullet';
@@ -29,6 +33,15 @@ export const data = new SlashCommandBuilder()
         { name: "Bullet (clean bullets)", value: "bullet" }
       )
   )
+  .addStringOption(option =>
+    option.setName("rank_by")
+      .setDescription("How to rank the slate")
+      .setRequired(false)
+      .addChoices(
+        { name: "🎯 Chance (likelihood to win)", value: "chance" },
+        { name: "💎 Value (best edge/EV)", value: "value" }
+      )
+  )
   .addBooleanOption(option =>
     option.setName("refresh")
       .setDescription("Force refresh (ignore cache)")
@@ -36,24 +49,30 @@ export const data = new SlashCommandBuilder()
   );
 
 // Format helpers for each style
-function formatGameCompact(game: any): string {
-  const conf = game.star ? 80 : (game.rank <= 3 ? 65 : 50);
+function formatGameCompact(game: any, showValue: boolean = false): string {
+  // Use actual confidence if stored, otherwise estimate from star/rank
+  const conf = game.confidence || (game.star ? 80 : (game.rank <= 3 ? 65 : 50));
+  const value = game.value || calculateBetValue(game);
   const bars = '█'.repeat(Math.floor(conf/10)) + '░'.repeat(10 - Math.floor(conf/10));
+  const valueDisplay = showValue ? `\n│ 💎 Value: ${formatValueScore(value)}` : '';
   return `┌─────────────────────────────
 │ 📊 ${game.spread} | O/U ${game.total}
 │ 🎯 Pick: **${game.pick}**
-│ 🔥 Confidence: ${bars} ${conf}%
+│ 🔥 Confidence: ${bars} ${conf}%${valueDisplay}
 └─────────────────────────────
 ${game.analysis}`;
 }
 
-function formatGameCard(game: any): string {
-  const confText = game.star ? '🔥🔥🔥🔥 HIGH CONFIDENCE' : (game.rank <= 3 ? '🔥🔥🔥 MEDIUM-HIGH' : '🔥🔥 MODERATE');
+function formatGameCard(game: any, showValue: boolean = false): string {
+  const conf = game.confidence || (game.star ? 80 : (game.rank <= 3 ? 65 : 50));
+  const value = game.value || calculateBetValue(game);
+  const confText = conf >= 75 ? '🔥🔥🔥🔥 HIGH CONFIDENCE' : (conf >= 60 ? '🔥🔥🔥 MEDIUM-HIGH' : '🔥🔥 MODERATE');
+  const valueText = showValue ? `\n┃ ${getValueTier(value)}` : '';
   const bullets = game.analysis.split('. ').slice(0, 3).map((s: string) => `• ${s.trim()}`).join('\n');
   return `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ 📈 ${game.spread}  │  ⚖️ O/U ${game.total}
-┃ ✅ PICK: **${game.pick}**
-┃ ${confText}
+┃ ✅ PICK: **${game.pick}** (${conf}%${showValue ? ` | 💎${value}` : ''})
+┃ ${confText}${valueText}
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
 ${bullets}
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`;
@@ -68,7 +87,7 @@ ${bullets}`;
 }
 
 function formatPropCompact(prop: any): string {
-  const conf = prop.star ? 80 : (prop.rank <= 2 ? 70 : 55);
+  const conf = prop.confidence || (prop.star ? 80 : (prop.rank <= 2 ? 70 : 55));
   const bars = '█'.repeat(Math.floor(conf/10)) + '░'.repeat(10 - Math.floor(conf/10));
   return `**${prop.prop}:** ${prop.line} → **${prop.play}**
 🔥 ${bars} ${conf}%
@@ -94,23 +113,30 @@ export async function execute(i:any){
   
   try {
     const style: FormatStyle = (i.options.getString("style") as FormatStyle) || 'compact';
+    const rankBy: RecType = (i.options.getString("rank_by") as RecType) || 'chance';
     const forceRefresh = i.options.getBoolean("refresh") || false;
     const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    console.log('[SLATE] Style:', style, '| Force refresh:', forceRefresh);
+    console.log('[SLATE] Style:', style, '| Rank by:', rankBy, '| Force refresh:', forceRefresh);
     
     let data: any;
     let rawOutput: string;
     let fromCache = false;
+    let isStale = false;
     
     // Check cache first (unless force refresh)
+    // Use allowStale=false to get fresh cache for display, but we'll use stale for context
     if (!forceRefresh) {
-      const cached = getCachedSlate();
+      const cached = getCachedSlate(false); // Get non-stale cache for display
       if (cached) {
-        data = cached.slateJson;
+        // Use the appropriate version based on rankBy
+        data = rankBy === 'value' && cached.slateJsonValue 
+          ? cached.slateJsonValue 
+          : cached.slateJson;
         rawOutput = cached.rawOutput;
         fromCache = true;
+        isStale = cached.isStale || false;
         const cacheAge = getCacheAgeMinutes();
-        console.log('[SLATE] Using cached slate, age:', cacheAge, 'minutes');
+        console.log('[SLATE] Using cached slate, age:', cacheAge, 'minutes, rankBy:', rankBy);
         await i.editReply(`📋 Loading cached slate (${cacheAge}m old)...`);
       }
     }
@@ -214,8 +240,44 @@ RULES:
       
       try {
         data = JSON.parse(jsonStr);
-        // Cache the successful result
-        saveSlateToCache(data, rawOutput, data.sources || []);
+        
+        // Calculate value scores for all games and props
+        if (data.games) {
+          for (const game of data.games) {
+            game.value = calculateBetValue(game);
+          }
+        }
+        if (data.props) {
+          for (const prop of data.props) {
+            prop.value = calculateBetValue({ confidence: prop.star ? 80 : 60, spread: prop.line });
+          }
+        }
+        
+        // Create chance-ranked version (by confidence/rank - already sorted by AI)
+        const chanceSlate = JSON.parse(JSON.stringify(data));
+        
+        // Create value-ranked version (sort by value score)
+        const valueSlate = JSON.parse(JSON.stringify(data));
+        if (valueSlate.games) {
+          valueSlate.games.sort((a: any, b: any) => (b.value || 50) - (a.value || 50));
+          valueSlate.games.forEach((g: any, idx: number) => {
+            g.rank = idx + 1;
+            g.star = (g.value || 50) >= 65;
+          });
+        }
+        if (valueSlate.props) {
+          valueSlate.props.sort((a: any, b: any) => (b.value || 50) - (a.value || 50));
+          valueSlate.props.forEach((p: any, idx: number) => {
+            p.rank = idx + 1;
+            p.star = (p.value || 50) >= 65;
+          });
+        }
+        
+        // Cache both versions
+        saveSlateToCache(chanceSlate, rawOutput, data.sources || [], valueSlate);
+        
+        // Use the requested version
+        data = rankBy === 'value' ? valueSlate : chanceSlate;
       } catch (e) {
         console.error('[SLATE] JSON parse error, falling back to raw output');
         await i.editReply(output.substring(0, 1990));
@@ -227,11 +289,17 @@ RULES:
     saveSlate(rawOutput!);
     
     // Build GAMES embed
+    const rankLabel = rankBy === 'value' ? '💎 VALUE' : '🎯 CHANCE';
+    const rankDesc = rankBy === 'value' ? 'ranked by edge/EV' : 'ranked by likelihood';
     const gamesEmbed = new EmbedBuilder()
-      .setColor(0xFF6B35)
+      .setColor(rankBy === 'value' ? 0x00CED1 : 0xFF6B35)
       .setTitle(`🏀 NBA SLATE — ${today}`)
-      .setDescription(style === 'card' ? '**━━━━━ GAME RANKINGS ━━━━━**' : `**GAME RANKINGS** (ranked by value)${fromCache ? `\n*📋 Cached ${getCacheAgeMinutes()}m ago — use \`/slate refresh:True\` for fresh picks*` : ''}`)
-      .setFooter({ text: `Generated ${getPSTTimestamp()}` });
+      .setDescription(style === 'card' 
+        ? `**━━━━━ GAME RANKINGS (${rankLabel}) ━━━━━**` 
+        : `**GAME RANKINGS** (${rankDesc})${fromCache ? `\n*📋 Cached ${getCacheAgeMinutes()}m ago — use \`/slate refresh:True\` for fresh picks*` : ''}\n*Switch with \`/slate rank_by:${rankBy === 'value' ? 'chance' : 'value'}\`*`)
+      .setFooter({ text: `${rankLabel} Ranking • ${getPSTTimestamp()}` });
+    
+    const showValue = rankBy === 'value';
     
     for (const game of data.games || []) {
       const star = game.star ? '⭐ ' : '';
@@ -242,13 +310,13 @@ RULES:
       let value: string;
       switch (style) {
         case 'card':
-          value = formatGameCard(game);
+          value = formatGameCard(game, showValue);
           break;
         case 'bullet':
           value = formatGameBullet(game);
           break;
         default: // compact
-          value = formatGameCompact(game);
+          value = formatGameCompact(game, showValue);
       }
       gamesEmbed.addFields({ name: title, value: value.substring(0, 1024) });
     }
@@ -258,7 +326,7 @@ RULES:
     }
     
     if (data.sources?.length) {
-      gamesEmbed.setFooter({ text: `Sources: ${data.sources.join(', ')}` });
+      gamesEmbed.setFooter({ text: `${rankLabel} Ranking • Sources: ${data.sources.join(', ')} • ${getPSTTimestamp()}` });
     }
     
     // Build PROPS embed

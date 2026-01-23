@@ -11,6 +11,50 @@ function getPSTTimestamp(): string {
 import { ENV } from "../lib/env.js";
 import { getCachedSlate, saveSlateToCache } from "../lib/slateCache.js";
 import { searchOddsForBet, formatOddsForPrompt } from "../lib/odds.js";
+import { calculateBetValue, formatValueScore, getValueTier } from "../lib/valueCalc.js";
+
+// In-memory cache for analyzed bets (keyed by normalized bet string)
+interface AnalysisCache {
+  data: any;
+  timestamp: number;
+  date: string; // PST date string to invalidate on new day
+}
+const analysisCache = new Map<string, AnalysisCache>();
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour cache
+
+function normalizeKey(bet: string): string {
+  return bet.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function getCachedAnalysis(bet: string): any | null {
+  const key = normalizeKey(bet);
+  const cached = analysisCache.get(key);
+  if (!cached) return null;
+  
+  const todayPST = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
+  const age = Date.now() - cached.timestamp;
+  
+  // Invalidate if different day or expired
+  if (cached.date !== todayPST || age > CACHE_TTL_MS) {
+    analysisCache.delete(key);
+    return null;
+  }
+  
+  console.log(`[ANALYZE] Using cached analysis for "${bet}" (${Math.round(age/60000)}m old)`);
+  return cached.data;
+}
+
+function setCachedAnalysis(bet: string, data: any): void {
+  const key = normalizeKey(bet);
+  const todayPST = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
+  analysisCache.set(key, { data, timestamp: Date.now(), date: todayPST });
+  console.log(`[ANALYZE] Cached analysis for "${bet}"`);
+}
+
+// Export for slate to check existing analyses
+export function getAnalysisFromCache(bet: string): any | null {
+  return getCachedAnalysis(bet);
+}
 
 export const data = new SlashCommandBuilder()
   .setName("analyze")
@@ -38,27 +82,35 @@ export async function execute(i: any) {
       timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
     });
     
+    // Check if we have a cached analysis for this bet
+    const cachedAnalysis = getCachedAnalysis(betInput);
+    let data: any = cachedAnalysis;
+    let fromCache = !!cachedAnalysis;
+    
     // Get cached slate for context
     const cachedSlate = getCachedSlate();
-    const slateContext = cachedSlate 
-      ? `Current slate has ${cachedSlate.slateJson?.games?.length || 0} games ranked. Top picks: ${
-          cachedSlate.slateJson?.games?.slice(0, 3).map((g: any) => `${g.away}@${g.home}: ${g.pick}`).join(', ') || 'None'
-        }`
-      : 'No cached slate available.';
     
-    // Fetch live odds data from The Odds API
-    await i.editReply("📡 Fetching live odds data...");
-    let oddsContext = '';
-    try {
-      const oddsData = await searchOddsForBet(betInput);
-      oddsContext = formatOddsForPrompt(oddsData);
-      console.log('[ANALYZE] Got odds data:', oddsData.found ? 'YES' : 'NO');
-    } catch (e) {
-      console.log('[ANALYZE] Could not fetch odds:', e);
-      oddsContext = 'Could not fetch live odds from The Odds API.';
-    }
-    
-    const prompt = `You are an elite NBA betting analyst. Today is ${today}.
+    // Only fetch and analyze if not cached
+    if (!data) {
+      const slateContext = cachedSlate 
+        ? `Current slate has ${cachedSlate.slateJson?.games?.length || 0} games ranked. Top picks: ${
+            cachedSlate.slateJson?.games?.slice(0, 3).map((g: any) => `${g.away}@${g.home}: ${g.pick}`).join(', ') || 'None'
+          }`
+        : 'No cached slate available.';
+      
+      // Fetch live odds data from The Odds API
+      await i.editReply("📡 Fetching live odds data...");
+      let oddsContext = '';
+      try {
+        const oddsData = await searchOddsForBet(betInput);
+        oddsContext = formatOddsForPrompt(oddsData);
+        console.log('[ANALYZE] Got odds data:', oddsData.found ? 'YES' : 'NO');
+      } catch (e) {
+        console.log('[ANALYZE] Could not fetch odds:', e);
+        oddsContext = 'Could not fetch live odds from The Odds API.';
+      }
+      
+      const prompt = `You are an elite NBA betting analyst. Today is ${today}.
 
 USER WANTS TO ANALYZE THIS BET: "${betInput}"
 
@@ -94,53 +146,59 @@ If the bet doesn't exist or the game isn't today, respond with:
   "error": "Explanation of why this bet can't be analyzed"
 }`;
 
-    await i.editReply("🔍 Analyzing bet...");
-    
-    const created = await openai.responses.create({
-      model: ENV.OPENAI_MODEL,
-      input: prompt,
-      tools: [{ type: "web_search_preview" }]
-    });
-    
-    const onProgress = async (message: string, elapsed: number) => {
-      try {
-        await i.editReply(`${message} (${elapsed.toFixed(0)}s)`);
-      } catch (e) {}
-    };
-    
-    const r = await waitForResponse(created.id, 60000, onProgress);
-    
-    // Extract output
-    let output = "";
-    if (r.output_text) {
-      output = r.output_text;
-    } else if (r.output && Array.isArray(r.output)) {
-      const messageItem = r.output.find((item: any) => item.type === 'message');
-      if (messageItem?.content && Array.isArray(messageItem.content)) {
-        output = messageItem.content
-          .filter((c: any) => c.type === 'output_text' || c.type === 'text')
-          .map((c: any) => c.text || c.content || '')
-          .join('\n');
+      await i.editReply("🔍 Analyzing bet...");
+      
+      const created = await openai.responses.create({
+        model: ENV.OPENAI_MODEL,
+        input: prompt,
+        tools: [{ type: "web_search_preview" }]
+      });
+      
+      const onProgress = async (message: string, elapsed: number) => {
+        try {
+          await i.editReply(`${message} (${elapsed.toFixed(0)}s)`);
+        } catch (e) {}
+      };
+      
+      const r = await waitForResponse(created.id, 60000, onProgress);
+      
+      // Extract output
+      let output = "";
+      if (r.output_text) {
+        output = r.output_text;
+      } else if (r.output && Array.isArray(r.output)) {
+        const messageItem = r.output.find((item: any) => item.type === 'message');
+        if (messageItem?.content && Array.isArray(messageItem.content)) {
+          output = messageItem.content
+            .filter((c: any) => c.type === 'output_text' || c.type === 'text')
+            .map((c: any) => c.text || c.content || '')
+            .join('\n');
+        }
       }
-    }
-    
-    // Parse JSON
-    let jsonStr = output;
-    const jsonMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) jsonStr = jsonMatch[1];
-    
-    let data: any;
-    try {
-      data = JSON.parse(jsonStr);
-    } catch (e) {
-      await i.editReply(`❌ Failed to parse analysis. Raw: ${output.substring(0, 500)}`);
-      return;
-    }
-    
-    // Handle error response
-    if (data.error) {
-      await i.editReply(`❌ ${data.error}`);
-      return;
+      
+      // Parse JSON
+      let jsonStr = output;
+      const jsonMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) jsonStr = jsonMatch[1];
+      
+      try {
+        data = JSON.parse(jsonStr);
+      } catch (e) {
+        await i.editReply(`❌ Failed to parse analysis. Raw: ${output.substring(0, 500)}`);
+        return;
+      }
+      
+      // Handle error response
+      if (data.error) {
+        await i.editReply(`❌ ${data.error}`);
+        return;
+      }
+      
+      // Cache the successful analysis
+      setCachedAnalysis(betInput, data);
+    } else {
+      // Using cached analysis
+      await i.editReply("📋 Using cached analysis...");
     }
     
     // Build embed
@@ -197,7 +255,7 @@ If the bet doesn't exist or the game isn't today, respond with:
           inline: false 
         }
       )
-      .setFooter({ text: `Sources: ${data.sources?.join(', ') || 'Web search'} • ${getPSTTimestamp()}` });
+      .setFooter({ text: `${fromCache ? '📋 Cached • ' : ''}Sources: ${data.sources?.join(', ') || 'Web search'} • ${getPSTTimestamp()}` });
     
     // Add to slate if requested and analysis is favorable
     if (addToSlate && cachedSlate && (data.recommendation === 'PLAY' || data.recommendation === 'LEAN')) {
