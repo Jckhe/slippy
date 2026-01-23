@@ -2,6 +2,14 @@ import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder,
 import { addWatchedBet, getCurrentSlate, removeBet, getUserWatchlist, getConfig, setConfig } from "../lib/watchlist.js";
 import { checkAllBetsNow } from "./oddsChecker.js";
 
+// PST timestamp helper
+function getPSTTimestamp(): string {
+  return new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Los_Angeles', 
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) + ' PT';
+}
+
 // Handle button interactions
 export async function handleButton(interaction: any) {
   const customId = interaction.customId;
@@ -9,16 +17,18 @@ export async function handleButton(interaction: any) {
 
   if (customId === 'track_bets') {
     await handleTrackBetsButton(interaction);
-  } else if (customId === 'watchlist_refresh') {
-    await handleWatchlistRefresh(interaction);
-  } else if (customId === 'watchlist_config') {
-    await handleWatchlistConfig(interaction);
+  } else if (customId === 'bets_refresh') {
+    await handleBetsRefresh(interaction);
+  } else if (customId === 'bets_config') {
+    await handleBetsConfig(interaction);
   } else if (customId === 'config_toggle_notifications') {
     await handleConfigToggle(interaction, 'notifications_enabled');
   } else if (customId === 'config_toggle_alerts') {
     await handleConfigToggle(interaction, 'line_movement_alerts');
   } else if (customId === 'config_threshold') {
     await handleConfigThreshold(interaction);
+  } else if (customId === 'config_polling') {
+    await handleConfigPolling(interaction);
   }
 }
 
@@ -31,8 +41,8 @@ export async function handleSelectMenu(interaction: any) {
     await handleTrackGamesSelect(interaction);
   } else if (customId === 'track_props_select') {
     await handleTrackPropsSelect(interaction);
-  } else if (customId === 'watchlist_remove') {
-    await handleWatchlistRemove(interaction);
+  } else if (customId === 'bets_remove') {
+    await handleBetsRemove(interaction);
   }
 }
 
@@ -57,6 +67,24 @@ export async function handleModalSubmit(interaction: any) {
     
     await interaction.reply({
       content: `✅ Movement threshold set to **${threshold} points**. You'll be alerted when lines move by this amount or more.`,
+      ephemeral: true
+    });
+  } else if (customId === 'config_polling_modal') {
+    const intervalStr = interaction.fields.getTextInputValue('polling_value');
+    const interval = parseInt(intervalStr);
+    
+    if (isNaN(interval) || interval < 5 || interval > 120) {
+      await interaction.reply({
+        content: '❌ Invalid interval. Please enter a number between 5 and 120 minutes.',
+        ephemeral: true
+      });
+      return;
+    }
+    
+    setConfig(interaction.user.id, { polling_interval: interval });
+    
+    await interaction.reply({
+      content: `✅ Polling interval set to **${interval} minutes**. Your bets will be checked this often for updates.`,
       ephemeral: true
     });
   }
@@ -160,7 +188,7 @@ async function handleTrackGamesSelect(interaction: any) {
 
   await interaction.reply({
     content: added > 0 
-      ? `✅ Added **${added}** game bet(s) to your watchlist!\n\nUse \`/watchlist view\` to see your tracked bets.`
+      ? `✅ Added **${added}** game bet(s)!\n\nUse \`/bets view\` to see your tracked bets.`
       : '⚠️ No bets selected.',
     ephemeral: true
   });
@@ -201,32 +229,32 @@ async function handleTrackPropsSelect(interaction: any) {
 
   await interaction.reply({
     content: added > 0 
-      ? `✅ Added **${added}** prop bet(s) to your watchlist!\n\nUse \`/watchlist view\` to see your tracked bets.`
+      ? `✅ Added **${added}** prop bet(s)!\n\nUse \`/bets view\` to see your tracked bets.`
       : '⚠️ No props selected.',
     ephemeral: true
   });
 }
 
-// Remove bet from watchlist
-async function handleWatchlistRemove(interaction: any) {
+// Remove bet from tracked bets
+async function handleBetsRemove(interaction: any) {
   const betId = parseInt(interaction.values[0]);
   const removed = removeBet(betId, interaction.user.id);
 
   if (removed) {
-    // Refresh the watchlist view
+    // Refresh the bets view
     const bets = getUserWatchlist(interaction.user.id);
     
     if (bets.length === 0) {
       await interaction.update({
-        content: '🗑️ Bet removed. Your watchlist is now empty.',
+        content: '🗑️ Bet removed. No tracked bets remaining.',
         embeds: [],
         components: []
       });
     } else {
       const embed = new EmbedBuilder()
         .setColor(0xFFA500)
-        .setTitle('👀 Your Watchlist')
-        .setTimestamp();
+        .setTitle('🎯 Tracked Bets')
+        .setFooter({ text: getPSTTimestamp() });
 
       for (const bet of bets.slice(0, 10)) {
         const title = `#${bet.id} | ${bet.game}`;
@@ -235,7 +263,7 @@ async function handleWatchlistRemove(interaction: any) {
       }
 
       const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('watchlist_remove')
+        .setCustomId('bets_remove')
         .setPlaceholder('Remove a bet...')
         .addOptions(
           bets.slice(0, 25).map(bet => ({
@@ -257,11 +285,11 @@ async function handleWatchlistRemove(interaction: any) {
 }
 
 // Manual refresh - triggers immediate odds check for user's bets
-async function handleWatchlistRefresh(interaction: any) {
+async function handleBetsRefresh(interaction: any) {
   await interaction.deferReply({ ephemeral: true });
   
   try {
-    // Get fresh watchlist
+    // Get fresh bets list
     const bets = getUserWatchlist(interaction.user.id);
     
     if (bets.length === 0) {
@@ -272,12 +300,12 @@ async function handleWatchlistRefresh(interaction: any) {
     // Trigger manual check
     await checkAllBetsNow();
     
-    // Show updated watchlist
+    // Show updated bets
     const embed = new EmbedBuilder()
       .setColor(0x00FF00)
-      .setTitle('🔄 Watchlist Refreshed')
+      .setTitle('🔄 Bets Refreshed')
       .setDescription(`Checked ${bets.length} bet(s) for updates.`)
-      .setTimestamp();
+      .setFooter({ text: `Refreshed ${getPSTTimestamp()}` });
     
     for (const bet of bets.slice(0, 5)) {
       const movement = bet.current_odds && bet.original_odds && bet.current_odds !== bet.original_odds
@@ -300,18 +328,18 @@ async function handleWatchlistRefresh(interaction: any) {
     
   } catch (error) {
     console.error('[INTERACTIONS] Refresh error:', error);
-    await interaction.editReply('❌ Error refreshing watchlist.');
+    await interaction.editReply('❌ Error refreshing bets.');
   }
 }
 
-// Configure watchlist settings
-async function handleWatchlistConfig(interaction: any) {
+// Configure bet tracking settings
+async function handleBetsConfig(interaction: any) {
   const config = getConfig(interaction.user.id);
   
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
-    .setTitle('⚙️ Watchlist Configuration')
-    .setDescription('Current settings for your watchlist notifications')
+    .setTitle('⚙️ Bet Tracking Configuration')
+    .setDescription('Current settings for your bet notifications')
     .addFields(
       { 
         name: '🔔 Notifications', 
@@ -327,6 +355,11 @@ async function handleWatchlistConfig(interaction: any) {
         name: '🎯 Movement Threshold', 
         value: `${config.movement_threshold} points`, 
         inline: true 
+      },
+      {
+        name: '⏱️ Polling Interval',
+        value: `${config.polling_interval} minutes`,
+        inline: true
       }
     )
     .setFooter({ text: 'Use buttons below to toggle settings' });
@@ -346,7 +379,12 @@ async function handleWatchlistConfig(interaction: any) {
     .setLabel('🎯 Set Threshold')
     .setStyle(ButtonStyle.Primary);
   
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(notifyBtn, alertsBtn, thresholdBtn);
+  const pollingBtn = new ButtonBuilder()
+    .setCustomId('config_polling')
+    .setLabel('⏱️ Set Polling')
+    .setStyle(ButtonStyle.Primary);
+  
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(notifyBtn, alertsBtn, thresholdBtn, pollingBtn);
   
   await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
 }
@@ -384,6 +422,28 @@ async function handleConfigThreshold(interaction: any) {
     .setRequired(true);
   
   const row = new ActionRowBuilder<TextInputBuilder>().addComponents(thresholdInput);
+  modal.addComponents(row);
+  
+  await interaction.showModal(modal);
+}
+
+// Set polling interval via modal
+async function handleConfigPolling(interaction: any) {
+  const config = getConfig(interaction.user.id);
+  
+  const modal = new ModalBuilder()
+    .setCustomId('config_polling_modal')
+    .setTitle('Set Polling Interval');
+  
+  const pollingInput = new TextInputBuilder()
+    .setCustomId('polling_value')
+    .setLabel('Check for updates every (minutes)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('30')
+    .setValue(config.polling_interval.toString())
+    .setRequired(true);
+  
+  const row = new ActionRowBuilder<TextInputBuilder>().addComponents(pollingInput);
   modal.addComponents(row);
   
   await interaction.showModal(modal);

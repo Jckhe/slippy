@@ -122,6 +122,7 @@ function initTables() {
     notifications_enabled INTEGER DEFAULT 1,
     line_movement_alerts INTEGER DEFAULT 1,
     movement_threshold REAL DEFAULT 0.5,
+    polling_interval INTEGER DEFAULT 30,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -134,6 +135,7 @@ export interface UserConfig {
   notifications_enabled: boolean;
   line_movement_alerts: boolean;
   movement_threshold: number;
+  polling_interval: number; // in minutes
 }
 
 export interface WatchedBet {
@@ -480,7 +482,8 @@ export function getConfig(userId: string): UserConfig {
       user_id: userId,
       notifications_enabled: true,
       line_movement_alerts: true,
-      movement_threshold: 0.5
+      movement_threshold: 0.5,
+      polling_interval: 30
     };
   }
   
@@ -488,7 +491,8 @@ export function getConfig(userId: string): UserConfig {
     user_id: row.user_id,
     notifications_enabled: !!row.notifications_enabled,
     line_movement_alerts: !!row.line_movement_alerts,
-    movement_threshold: row.movement_threshold || 0.5
+    movement_threshold: row.movement_threshold || 0.5,
+    polling_interval: row.polling_interval || 30
   };
 }
 
@@ -499,13 +503,14 @@ export function setConfig(userId: string, updates: Partial<Omit<UserConfig, 'use
   if (!existing) {
     // Insert new config
     db.prepare(`
-      INSERT INTO user_config (user_id, notifications_enabled, line_movement_alerts, movement_threshold)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO user_config (user_id, notifications_enabled, line_movement_alerts, movement_threshold, polling_interval)
+      VALUES (?, ?, ?, ?, ?)
     `).run(
       userId,
       updates.notifications_enabled !== undefined ? (updates.notifications_enabled ? 1 : 0) : 1,
       updates.line_movement_alerts !== undefined ? (updates.line_movement_alerts ? 1 : 0) : 1,
-      updates.movement_threshold !== undefined ? updates.movement_threshold : 0.5
+      updates.movement_threshold !== undefined ? updates.movement_threshold : 0.5,
+      updates.polling_interval !== undefined ? updates.polling_interval : 30
     );
   } else {
     // Update existing
@@ -523,6 +528,10 @@ export function setConfig(userId: string, updates: Partial<Omit<UserConfig, 'use
     if (updates.movement_threshold !== undefined) {
       fields.push('movement_threshold = ?');
       values.push(updates.movement_threshold);
+    }
+    if (updates.polling_interval !== undefined) {
+      fields.push('polling_interval = ?');
+      values.push(updates.polling_interval);
     }
     
     if (fields.length > 0) {

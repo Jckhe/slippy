@@ -9,7 +9,7 @@ let currentSlate: SlateData | null = null;
 
 export function saveSlate(content: string): void {
   const today = new Date().toLocaleDateString('en-US', { 
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+    timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   });
   currentSlate = {
     date: today,

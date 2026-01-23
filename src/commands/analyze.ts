@@ -1,7 +1,16 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 import { openai, waitForResponse } from "../lib/openai.js";
+
+// PST timestamp helper
+function getPSTTimestamp(): string {
+  return new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Los_Angeles', 
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) + ' PT';
+}
 import { ENV } from "../lib/env.js";
 import { getCachedSlate, saveSlateToCache } from "../lib/slateCache.js";
+import { searchOddsForBet, formatOddsForPrompt } from "../lib/odds.js";
 
 export const data = new SlashCommandBuilder()
   .setName("analyze")
@@ -20,7 +29,7 @@ export async function execute(i: any) {
   
   try {
     const today = new Date().toLocaleDateString('en-US', { 
-      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+      timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
     });
     
     // Get cached slate for context
@@ -31,25 +40,41 @@ export async function execute(i: any) {
         }`
       : 'No cached slate available.';
     
+    // Fetch live odds data from The Odds API
+    await i.editReply("📡 Fetching live odds data...");
+    let oddsContext = '';
+    try {
+      const oddsData = await searchOddsForBet(betInput);
+      oddsContext = formatOddsForPrompt(oddsData);
+      console.log('[ANALYZE] Got odds data:', oddsData.found ? 'YES' : 'NO');
+    } catch (e) {
+      console.log('[ANALYZE] Could not fetch odds:', e);
+      oddsContext = 'Could not fetch live odds from The Odds API.';
+    }
+    
     const prompt = `You are an elite NBA betting analyst. Today is ${today}.
 
 USER WANTS TO ANALYZE THIS BET: "${betInput}"
 
 ${slateContext}
 
-Search for current information about this bet including:
-- Current line/odds from major sportsbooks
-- Team/player recent performance
-- Injury news
+${oddsContext}
+
+Search for ADDITIONAL current information about this bet including:
+- Team/player recent performance (last 5-10 games)
+- Injury news and lineup updates
 - ATS/Over-Under trends
 - Head-to-head history if applicable
+- Any relevant news or factors
+
+IMPORTANT: Use the LIVE ODDS DATA provided above as the primary source for current lines. Supplement with web search for trends and news.
 
 RESPOND IN THIS EXACT JSON FORMAT:
 {
   "bet_type": "game" | "prop",
   "game": "Away @ Home",
   "pick": "The specific pick (e.g., Lakers -3.5, LeBron Over 25.5 pts)",
-  "current_line": "Current line from books",
+  "current_line": "Current line from the odds data above",
   "confidence": 50-90,
   "ranking_vs_slate": "Where this bet ranks vs today's slate (e.g., '#2 - better than 5 of 7 plays')",
   "analysis": "3-4 sentences with ATS trends, matchup analysis, injury impact, and reasoning",
@@ -166,8 +191,7 @@ If the bet doesn't exist or the game isn't today, respond with:
           inline: false 
         }
       )
-      .setFooter({ text: `Sources: ${data.sources?.join(', ') || 'Web search'}` })
-      .setTimestamp();
+      .setFooter({ text: `Sources: ${data.sources?.join(', ') || 'Web search'} • ${getPSTTimestamp()}` });
     
     // If this is a good play and we have a cached slate, offer to add it
     if (cachedSlate && (data.recommendation === 'PLAY' || data.recommendation === 'LEAN')) {
@@ -177,10 +201,11 @@ If the bet doesn't exist or the game isn't today, respond with:
       );
       
       if (!existingGame && data.bet_type === 'game') {
-        // Add to slate
+        // Create new game entry with confidence for sorting
         const newGame = {
-          rank: (cachedSlate.slateJson?.games?.length || 0) + 1,
+          rank: 0, // Will be set after sorting
           star: data.confidence >= 75,
+          confidence: data.confidence, // Store confidence for sorting
           away: data.game.split('@')[0]?.trim() || data.game.split('vs')[0]?.trim(),
           home: data.game.split('@')[1]?.trim() || data.game.split('vs')[1]?.trim(),
           spread: data.current_line,
@@ -192,13 +217,29 @@ If the bet doesn't exist or the game isn't today, respond with:
         cachedSlate.slateJson.games = cachedSlate.slateJson.games || [];
         cachedSlate.slateJson.games.push(newGame);
         
-        // Re-sort by a simple heuristic (confidence-based)
-        // In real implementation you'd want smarter ranking
+        // Re-rank all games by confidence (highest first)
+        cachedSlate.slateJson.games.sort((a: any, b: any) => {
+          const confA = a.confidence || (a.star ? 80 : 60); // Estimate confidence if not set
+          const confB = b.confidence || (b.star ? 80 : 60);
+          return confB - confA;
+        });
+        
+        // Update ranks after sorting
+        cachedSlate.slateJson.games.forEach((g: any, idx: number) => {
+          g.rank = idx + 1;
+          g.star = (g.confidence || (g.star ? 80 : 60)) >= 75;
+        });
+        
+        // Find the new rank of our added game
+        const addedGameRank = cachedSlate.slateJson.games.findIndex(
+          (g: any) => g.pick === newGame.pick && g.away === newGame.away
+        ) + 1;
+        
         saveSlateToCache(cachedSlate.slateJson, cachedSlate.rawOutput, cachedSlate.sources);
         
         embed.addFields({
           name: '📋 Added to Slate',
-          value: `This bet has been added to today's cached slate as #${newGame.rank}`,
+          value: `This bet has been added and ranked **#${addedGameRank}** of ${cachedSlate.slateJson.games.length} plays based on confidence.`,
           inline: false
         });
       }

@@ -1,12 +1,21 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from "discord.js";
 import { getUserWatchlist, clearUserWatchlist, removeBet, updateBetStatus, getUserBetHistory, WatchedBet, getUserArchive, getUserStats, ArchivedBet, addWatchedBet, getLastPolled } from "../lib/watchlist.js";
+import { getNextPollTime, getCurrentPollingInterval } from "../lib/oddsChecker.js";
+
+// PST timestamp helper
+function getPSTTimestamp(): string {
+  return new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Los_Angeles', 
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) + ' PT';
+}
 
 export const data = new SlashCommandBuilder()
-  .setName("watchlist")
-  .setDescription("View and manage your tracked bets")
+  .setName("bets")
+  .setDescription("View and manage tracked bets")
   .addSubcommand(sub =>
     sub.setName("view")
-      .setDescription("View your current watchlist")
+      .setDescription("View current tracked bets (public)")
   )
   .addSubcommand(sub =>
     sub.setName("add")
@@ -88,8 +97,7 @@ const STATUS_EMOJI: Record<string, string> = {
 function formatBetEmbed(bets: WatchedBet[], title: string, showStatus = false): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0xFFA500)
-    .setTitle(title)
-    .setTimestamp();
+    .setTitle(title);
 
   if (bets.length === 0) {
     embed.setDescription('No bets found. Use `/slate` and click "Track Bets" to add some!');
@@ -98,10 +106,21 @@ function formatBetEmbed(bets: WatchedBet[], title: string, showStatus = false): 
 
   // Add last polled info
   const lastPolled = getLastPolled();
+  const nextPoll = getNextPollTime();
+  const pollingInterval = getCurrentPollingInterval();
+  
   const polledStr = lastPolled 
     ? lastPolled.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'short', timeStyle: 'short' })
     : 'Never';
-  embed.setDescription(`📡 **Last Polled:** ${polledStr} PT`);
+  
+  // Calculate time until next poll
+  let nextPollStr = 'Unknown';
+  if (nextPoll) {
+    const minsUntil = Math.max(0, Math.round((nextPoll.getTime() - Date.now()) / 60000));
+    nextPollStr = minsUntil === 0 ? 'Now' : `~${minsUntil} min`;
+  }
+  
+  embed.setDescription(`📡 **Last Check:** ${polledStr} PT\n⏱️ **Next Check:** ${nextPollStr} (every ${pollingInterval}m)`);
 
   for (const bet of bets.slice(0, 8)) { // Limit to 8 for better formatting
     const statusEmoji = showStatus ? `${STATUS_EMOJI[bet.status]} ` : '🎯';
@@ -109,34 +128,51 @@ function formatBetEmbed(bets: WatchedBet[], title: string, showStatus = false): 
     
     // Build card-style content
     let value = `\`\`\`\n`;
-    value += `Pick: ${bet.pick}\n`;
-    value += `Line: ${bet.line}\n`;
+    value += `📌 Pick: ${bet.pick}\n`;
     
-    // Parse and display movement more clearly
-    if (bet.current_odds && bet.original_odds) {
-      // Extract just the numeric part for comparison
-      const origNum = parseFloat(bet.original_odds.replace(/[^-\d.]/g, '')) || 0;
-      const currNum = parseFloat(bet.current_odds.replace(/[^-\d.]/g, '')) || 0;
-      const diff = currNum - origNum;
+    // Show original vs current line
+    if (bet.original_odds && bet.current_odds) {
+      value += `📊 Original: ${bet.original_odds}\n`;
       
-      if (diff !== 0) {
-        const direction = diff > 0 ? '📈' : '📉';
-        const diffStr = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
-        value += `Movement: ${diffStr} ${direction}\n`;
+      // Check if line changed
+      if (bet.current_odds !== bet.original_odds) {
+        value += `📈 Current:  ${bet.current_odds}\n`;
+        
+        // Calculate numeric movement - look for signed numbers first
+        const origSigned = bet.original_odds.match(/([+-]\d+\.?\d*)/);
+        const currSigned = bet.current_odds.match(/([+-]\d+\.?\d*)/);
+        
+        // Fall back to unsigned if no sign found
+        const origMatch = origSigned || bet.original_odds.match(/(\d+\.?\d*)/);
+        const currMatch = currSigned || bet.current_odds.match(/(\d+\.?\d*)/);
+        
+        if (origMatch && currMatch) {
+          const origNum = parseFloat(origMatch[1]);
+          const currNum = parseFloat(currMatch[1]);
+          const diff = currNum - origNum;
+          
+          if (diff !== 0) {
+            const direction = diff > 0 ? '↑' : '↓';
+            const diffStr = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
+            value += `🔄 Movement: ${diffStr} ${direction}\n`;
+          }
+        }
       } else {
-        value += `Movement: No change ➖\n`;
+        value += `➖ No line movement\n`;
       }
+    } else {
+      value += `📊 Line: ${bet.line}\n`;
     }
     
     // Add game time if available
     if (bet.game_time) {
-      value += `Time: ${bet.game_time}\n`;
+      value += `⏰ Game: ${bet.game_time}\n`;
     }
     
     // Add when bet was placed
     if (bet.created_at) {
       const placedDate = new Date(bet.created_at);
-      value += `Placed: ${placedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}\n`;
+      value += `📅 Placed: ${placedDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n`;
     }
     
     value += `\`\`\``;
@@ -146,7 +182,7 @@ function formatBetEmbed(bets: WatchedBet[], title: string, showStatus = false): 
   }
 
   if (bets.length > 8) {
-    embed.setFooter({ text: `Showing 8 of ${bets.length} bets • Use /watchlist history for resolved bets` });
+    embed.setFooter({ text: `Showing 8 of ${bets.length} bets • Use /bets history for resolved bets` });
   } else {
     embed.setFooter({ text: `${bets.length} active bet(s) • Polls every 30 min` });
   }
@@ -156,21 +192,21 @@ function formatBetEmbed(bets: WatchedBet[], title: string, showStatus = false): 
 
 export async function execute(i: any) {
   const subcommand = i.options.getSubcommand();
-  console.log('[WATCHLIST] Command:', subcommand, 'User:', i.user.id);
+  console.log('[BETS] Command:', subcommand, 'User:', i.user.id);
 
   switch (subcommand) {
     case 'view': {
       const bets = getUserWatchlist(i.user.id);
-      const embed = formatBetEmbed(bets, '👀 Your Watchlist');
+      const embed = formatBetEmbed(bets, '🎯 Tracked Bets');
       
       // Create action buttons row
       const refreshBtn = new ButtonBuilder()
-        .setCustomId('watchlist_refresh')
+        .setCustomId('bets_refresh')
         .setLabel('🔄 Refresh')
         .setStyle(ButtonStyle.Secondary);
       
       const configBtn = new ButtonBuilder()
-        .setCustomId('watchlist_config')
+        .setCustomId('bets_config')
         .setLabel('⚙️ Configure')
         .setStyle(ButtonStyle.Secondary);
       
@@ -179,7 +215,7 @@ export async function execute(i: any) {
       // Add remove dropdown if there are bets
       if (bets.length > 0) {
         const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId('watchlist_remove')
+          .setCustomId('bets_remove')
           .setPlaceholder('Remove a bet...')
           .addOptions(
             bets.slice(0, 25).map(bet => ({
@@ -190,9 +226,9 @@ export async function execute(i: any) {
           );
         
         const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
-        await i.reply({ embeds: [embed], components: [buttonRow, selectRow], ephemeral: true });
+        await i.reply({ embeds: [embed], components: [buttonRow, selectRow] });
       } else {
-        await i.reply({ embeds: [embed], components: [buttonRow], ephemeral: true });
+        await i.reply({ embeds: [embed], components: [buttonRow] });
       }
       break;
     }
@@ -238,7 +274,7 @@ export async function execute(i: any) {
       
       const embed = new EmbedBuilder()
         .setColor(0x00FF00)
-        .setTitle('✅ Bet Added to Watchlist')
+        .setTitle('✅ Bet Added')
         .addFields(
           { name: '🎮 Game', value: game, inline: true },
           { name: '🎯 Pick', value: pick, inline: true },
@@ -246,11 +282,10 @@ export async function execute(i: any) {
           { name: '🏷️ Type', value: betType === 'game' ? '🏀 Game' : '📊 Player Prop', inline: true },
           { name: '🆔 Bet ID', value: `#${betId}`, inline: true }
         )
-        .setFooter({ text: 'Use /watchlist resolve to mark outcome' })
-        .setTimestamp();
+        .setFooter({ text: `Use /bets resolve to mark outcome • ${getPSTTimestamp()}` });
       
       await i.reply({ embeds: [embed], ephemeral: true });
-      console.log('[WATCHLIST] Manual bet added:', betId, game, pick);
+      console.log('[BETS] Manual bet added:', betId, game, pick);
       break;
     }
 
@@ -258,8 +293,8 @@ export async function execute(i: any) {
       const count = clearUserWatchlist(i.user.id);
       await i.reply({
         content: count > 0 
-          ? `🗑️ Cleared ${count} bet(s) from your watchlist.`
-          : '📭 Your watchlist was already empty.',
+          ? `🗑️ Cleared ${count} bet(s).`
+          : '📭 No tracked bets to clear.',
         ephemeral: true
       });
       break;
@@ -286,7 +321,7 @@ export async function execute(i: any) {
       const embed = new EmbedBuilder()
         .setColor(0x00BFFF)
         .setTitle('📊 Your Betting Stats')
-        .setTimestamp();
+        .setFooter({ text: getPSTTimestamp() });
       
       if (stats.total === 0) {
         embed.setDescription('No resolved bets yet. Track some bets and wait for games to finish!');

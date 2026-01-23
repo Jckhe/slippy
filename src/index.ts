@@ -2,7 +2,7 @@ import { Client, Collection, GatewayIntentBits, ChannelType } from "discord.js";
 import { ENV } from "./lib/env.js";
 import * as Ask from "./commands/ask.js";
 import * as Slate from "./commands/slate.js";
-import * as Watchlist from "./commands/watchlist.js";
+import * as Bets from "./commands/bets.js";
 import * as State from "./commands/state.js";
 import * as Analyze from "./commands/analyze.js";
 import { handleButton, handleSelectMenu, handleModalSubmit } from "./lib/interactions.js";
@@ -12,7 +12,7 @@ const c = new Client({ intents:[GatewayIntentBits.Guilds] });
 const cmds:any = new Collection();
 cmds.set("ask", Ask);
 cmds.set("slate", Slate);
-cmds.set("watchlist", Watchlist);
+cmds.set("bets", Bets);
 cmds.set("state", State);
 cmds.set("analyze", Analyze);
 

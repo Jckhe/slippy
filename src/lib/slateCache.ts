@@ -76,7 +76,7 @@ const CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
  */
 export function getCachedSlate(): CachedSlate | null {
   const today = new Date().toLocaleDateString('en-US', { 
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+    timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   });
   
   const row = db.prepare(`
@@ -120,7 +120,7 @@ export function getCachedSlate(): CachedSlate | null {
  */
 export function saveSlateToCache(slateJson: any, rawOutput: string, sources: string[] = []): void {
   const today = new Date().toLocaleDateString('en-US', { 
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+    timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   });
   
   db.prepare(`

@@ -5,6 +5,14 @@ import { saveSlate } from "../lib/store.js";
 import { setCurrentSlate } from "../lib/watchlist.js";
 import { getCachedSlate, saveSlateToCache, getCacheAgeMinutes } from "../lib/slateCache.js";
 
+// PST timestamp helper
+function getPSTTimestamp(): string {
+  return new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Los_Angeles', 
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) + ' PT';
+}
+
 // Format styles
 type FormatStyle = 'compact' | 'card' | 'bullet';
 
@@ -87,7 +95,7 @@ export async function execute(i:any){
   try {
     const style: FormatStyle = (i.options.getString("style") as FormatStyle) || 'compact';
     const forceRefresh = i.options.getBoolean("refresh") || false;
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     console.log('[SLATE] Style:', style, '| Force refresh:', forceRefresh);
     
     let data: any;
@@ -223,7 +231,7 @@ RULES:
       .setColor(0xFF6B35)
       .setTitle(`🏀 NBA SLATE — ${today}`)
       .setDescription(style === 'card' ? '**━━━━━ GAME RANKINGS ━━━━━**' : `**GAME RANKINGS** (ranked by value)${fromCache ? `\n*📋 Cached ${getCacheAgeMinutes()}m ago — use \`/slate refresh:True\` for fresh picks*` : ''}`)
-      .setTimestamp();
+      .setFooter({ text: `Generated ${getPSTTimestamp()}` });
     
     for (const game of data.games || []) {
       const star = game.star ? '⭐ ' : '';

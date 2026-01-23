@@ -1,5 +1,13 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
 import { getSlate } from "../lib/store.js";
+
+// PST timestamp helper
+function getPSTTimestamp(): string {
+  return new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Los_Angeles', 
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) + ' PT';
+}
 import { getCachedSlate, getCacheAgeMinutes } from "../lib/slateCache.js";
 import { getStateStats, getCurrentSlate as getWatchlistSlate } from "../lib/watchlist.js";
 
@@ -13,7 +21,7 @@ export async function execute(i: any) {
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
     .setTitle('🔧 Bot State & Cache Status')
-    .setTimestamp();
+    .setFooter({ text: getPSTTimestamp() });
   
   // 1. Slate Cache Status
   const cachedSlate = getCachedSlate();
