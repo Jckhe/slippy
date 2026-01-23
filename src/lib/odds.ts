@@ -215,70 +215,8 @@ export interface OddsSearchResult {
   commenceTime?: string;
 }
 
-// Common NBA player to team mappings (update as needed)
-const PLAYER_TEAM_MAP: Record<string, string[]> = {
-  'lebron': ['lakers'],
-  'james': ['lakers'], // LeBron James
-  'curry': ['warriors'],
-  'steph': ['warriors'],
-  'durant': ['suns'],
-  'giannis': ['bucks'],
-  'antetokounmpo': ['bucks'],
-  'jokic': ['nuggets'],
-  'nikola': ['nuggets'],
-  'embiid': ['76ers', 'sixers'],
-  'luka': ['mavericks', 'mavs'],
-  'doncic': ['mavericks', 'mavs'],
-  'tatum': ['celtics'],
-  'jayson': ['celtics'],
-  'sga': ['thunder'],
-  'shai': ['thunder'],
-  'gilgeous': ['thunder'],
-  'anthony': ['lakers', 'pelicans'], // AD or Edwards context matters
-  'davis': ['lakers'],
-  'edwards': ['timberwolves', 'wolves'],
-  'morant': ['grizzlies'],
-  'ja': ['grizzlies'],
-  'booker': ['suns'],
-  'devin': ['suns'],
-  'mitchell': ['cavaliers', 'cavs'],
-  'donovan': ['cavaliers', 'cavs'],
-  'brunson': ['knicks'],
-  'jalen': ['knicks'],
-  'haliburton': ['pacers'],
-  'tyrese': ['pacers'],
-  'fox': ['kings'],
-  'sabonis': ['kings'],
-  'young': ['hawks'],
-  'trae': ['hawks'],
-  'westbrook': ['nuggets', 'clippers'],
-  'kawhi': ['clippers'],
-  'leonard': ['clippers'],
-  'george': ['76ers', 'sixers'],
-  'paul': ['76ers', 'sixers', 'spurs'],
-  'harden': ['clippers'],
-  'lillard': ['bucks'],
-  'dame': ['bucks'],
-  'towns': ['knicks'],
-  'kat': ['knicks'],
-  'butler': ['heat'],
-  'jimmy': ['heat'],
-  'bam': ['heat'],
-  'adebayo': ['heat'],
-  'zion': ['pelicans'],
-  'williamson': ['pelicans'],
-  'ingram': ['pelicans'],
-  'brandon': ['pelicans'],
-  'wemby': ['spurs'],
-  'wembanyama': ['spurs'],
-  'victor': ['spurs'],
-  'chet': ['thunder'],
-  'holmgren': ['thunder'],
-  'green': ['warriors', 'rockets'],
-  'draymond': ['warriors'],
-  'poole': ['wizards'],
-  'jordan': ['wizards'],
-};
+// NOTE: We no longer use a hardcoded player-team mapping since it gets stale.
+// Instead, for player props we search ALL games' prop markets to find the player.
 
 export async function searchOddsForBet(betQuery: string): Promise<OddsSearchResult> {
   try {
@@ -291,52 +229,81 @@ export async function searchOddsForBet(betQuery: string): Promise<OddsSearchResu
     
     const queryLower = betQuery.toLowerCase();
     
-    // Check if this looks like a player prop - try to find team from player name
+    // Check if this looks like a player prop
     const isLikelyProp = queryLower.includes('over') || queryLower.includes('under') || 
                          queryLower.includes('points') || queryLower.includes('rebounds') ||
                          queryLower.includes('assists') || queryLower.includes('threes') ||
                          queryLower.includes('+') || queryLower.includes('o/u');
     
-    // Try to extract team from player name
-    let playerTeams: string[] = [];
-    for (const [playerKey, teams] of Object.entries(PLAYER_TEAM_MAP)) {
-      if (queryLower.includes(playerKey)) {
-        playerTeams = teams;
-        console.log(`[ODDS] Found player mapping: ${playerKey} -> ${teams.join(', ')}`);
-        break;
-      }
-    }
-
-    // Find matching game
-    const matchingGame = oddsData.find((game: any) => {
+    // Extract potential player name (words before the stat type)
+    const playerNameMatch = queryLower.match(/^([a-z\s]+?)\s*(over|under|\+|o\/u|points|rebounds|assists|threes|\d)/i);
+    const potentialPlayerName = playerNameMatch ? playerNameMatch[1].trim() : '';
+    
+    // Try to find game by team name first (for game bets like "Lakers -3.5")
+    let matchingGame = oddsData.find((game: any) => {
       const homeTeam = game.home_team?.toLowerCase() || '';
       const awayTeam = game.away_team?.toLowerCase() || '';
       const homeMascot = homeTeam.split(' ').pop() || '';
       const awayMascot = awayTeam.split(' ').pop() || '';
       
       // Direct team name match
-      if (queryLower.includes(homeMascot) || queryLower.includes(awayMascot) ||
-          homeTeam.includes(queryLower.split(' ')[0]) || awayTeam.includes(queryLower.split(' ')[0])) {
-        return true;
-      }
-      
-      // Player name to team match
-      if (playerTeams.length > 0) {
-        for (const team of playerTeams) {
-          if (homeMascot.includes(team) || awayMascot.includes(team) ||
-              homeTeam.includes(team) || awayTeam.includes(team)) {
-            console.log(`[ODDS] Matched game via player: ${game.away_team} @ ${game.home_team}`);
-            return true;
-          }
-        }
-      }
-      
-      return false;
+      return queryLower.includes(homeMascot) || queryLower.includes(awayMascot) ||
+             homeTeam.includes(queryLower.split(' ')[0]) || awayTeam.includes(queryLower.split(' ')[0]);
     });
     
+    // If this looks like a player prop and we didn't find a team match,
+    // search ALL games' player props to find which game has this player
+    if (!matchingGame && isLikelyProp && potentialPlayerName) {
+      console.log(`[ODDS] No team match found, searching all games for player: "${potentialPlayerName}"`);
+      
+      // Determine which prop market to search
+      let propMarket = 'player_points';
+      if (queryLower.includes('rebound')) propMarket = 'player_rebounds';
+      else if (queryLower.includes('assist')) propMarket = 'player_assists';
+      else if (queryLower.includes('three') || queryLower.includes('3pt')) propMarket = 'player_threes';
+      else if (queryLower.includes('pra') || queryLower.includes('pts+reb+ast')) propMarket = 'player_points_rebounds_assists';
+      
+      // Search each game's props for the player
+      for (const game of oddsData) {
+        try {
+          const propsData = await fetchPlayerProps(game.id, propMarket);
+          
+          // Check if this game has props for our player
+          for (const bookmaker of propsData?.bookmakers || []) {
+            for (const market of bookmaker.markets || []) {
+              for (const outcome of market.outcomes || []) {
+                if (outcome.description) {
+                  const playerNameLower = outcome.description.toLowerCase();
+                  // Check if player name matches (partial match for first/last name)
+                  const nameParts = potentialPlayerName.split(' ');
+                  const matchesPlayer = nameParts.every(part => playerNameLower.includes(part)) ||
+                                        playerNameLower.includes(potentialPlayerName);
+                  
+                  if (matchesPlayer) {
+                    console.log(`[ODDS] Found player "${outcome.description}" in game: ${game.away_team} @ ${game.home_team}`);
+                    matchingGame = game;
+                    break;
+                  }
+                }
+              }
+              if (matchingGame) break;
+            }
+            if (matchingGame) break;
+          }
+          if (matchingGame) break;
+        } catch (e) {
+          // Skip games where props fetch fails
+          continue;
+        }
+      }
+    }
+    
     if (!matchingGame) {
+      console.log('[ODDS] No matching game found for query:', betQuery);
       return { found: false };
     }
+    
+    console.log(`[ODDS] Matched game: ${matchingGame.away_team} @ ${matchingGame.home_team}`);
     
     const result: OddsSearchResult = {
       found: true,
@@ -385,13 +352,8 @@ export async function searchOddsForBet(betQuery: string): Promise<OddsSearchResu
     
     // Check if this is a prop bet - try to fetch player props
     const propMarkets = ['player_points', 'player_rebounds', 'player_assists', 'player_threes', 'player_points_rebounds_assists'];
-    const hasPlayerName = Object.keys(PLAYER_TEAM_MAP).some(p => queryLower.includes(p));
-    const hasPropKeywords = queryLower.includes('over') || queryLower.includes('under') || 
-                            queryLower.includes('points') || queryLower.includes('rebounds') ||
-                            queryLower.includes('assists') || queryLower.includes('threes') ||
-                            queryLower.includes('+') || queryLower.includes('o/u');
     
-    if ((hasPlayerName || hasPropKeywords) && result.eventId) {
+    if (isLikelyProp && result.eventId) {
       try {
         // Determine which prop market to fetch
         let propMarket = 'player_points';

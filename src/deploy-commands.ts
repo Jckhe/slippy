@@ -15,8 +15,30 @@ const body = [
   Analyze.data.toJSON()
 ];
 
+// Delete all existing commands first to ensure clean slate
+console.log("🗑️ Clearing existing commands...");
+try {
+  // Clear guild commands
+  await rest.put(
+    Routes.applicationGuildCommands(ENV.DISCORD_CLIENT_ID, ENV.DISCORD_GUILD_ID!),
+    { body: [] }
+  );
+  console.log("✅ Guild commands cleared");
+  
+  // Also clear global commands (in case any were registered globally)
+  await rest.put(
+    Routes.applicationCommands(ENV.DISCORD_CLIENT_ID),
+    { body: [] }
+  );
+  console.log("✅ Global commands cleared");
+} catch (e) {
+  console.log("⚠️ Could not clear commands:", e);
+}
+
+// Register fresh commands
+console.log("📝 Registering commands...");
 await rest.put(
   Routes.applicationGuildCommands(ENV.DISCORD_CLIENT_ID, ENV.DISCORD_GUILD_ID!),
   { body }
 );
-console.log("Commands deployed");
+console.log(`✅ ${body.length} commands deployed: ${body.map((c: any) => '/' + c.name).join(', ')}`);
