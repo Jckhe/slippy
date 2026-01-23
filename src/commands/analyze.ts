@@ -21,14 +21,14 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
   )
   .addBooleanOption(option =>
-    option.setName("add_to_slate")
+    option.setName("slate")
       .setDescription("Add this bet to the slate if analysis is favorable")
       .setRequired(false)
   );
 
 export async function execute(i: any) {
   const betInput = i.options.getString("bet", true);
-  const addToSlate = i.options.getBoolean("add_to_slate") || false;
+  const addToSlate = i.options.getBoolean("slate") || false;
   console.log('[ANALYZE] Analyzing bet:', betInput, '| Add to slate:', addToSlate);
   
   await i.deferReply();
