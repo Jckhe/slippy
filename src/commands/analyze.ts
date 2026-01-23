@@ -19,11 +19,17 @@ export const data = new SlashCommandBuilder()
     option.setName("bet")
       .setDescription("The bet to analyze (e.g., 'Lakers -3.5', 'LeBron over 25.5 points')")
       .setRequired(true)
+  )
+  .addBooleanOption(option =>
+    option.setName("add_to_slate")
+      .setDescription("Add this bet to the slate if analysis is favorable")
+      .setRequired(false)
   );
 
 export async function execute(i: any) {
   const betInput = i.options.getString("bet", true);
-  console.log('[ANALYZE] Analyzing bet:', betInput);
+  const addToSlate = i.options.getBoolean("add_to_slate") || false;
+  console.log('[ANALYZE] Analyzing bet:', betInput, '| Add to slate:', addToSlate);
   
   await i.deferReply();
   
@@ -193,11 +199,13 @@ If the bet doesn't exist or the game isn't today, respond with:
       )
       .setFooter({ text: `Sources: ${data.sources?.join(', ') || 'Web search'} • ${getPSTTimestamp()}` });
     
-    // If this is a good play and we have a cached slate, offer to add it
-    if (cachedSlate && (data.recommendation === 'PLAY' || data.recommendation === 'LEAN')) {
-      // Add to cached slate if not already there
+    // Add to slate if requested and analysis is favorable
+    if (addToSlate && cachedSlate && (data.recommendation === 'PLAY' || data.recommendation === 'LEAN')) {
+      // Check if already in slate
       const existingGame = cachedSlate.slateJson?.games?.find(
-        (g: any) => g.game?.toLowerCase().includes(data.game?.toLowerCase()?.split('@')[0]?.trim())
+        (g: any) => g.pick?.toLowerCase() === data.pick?.toLowerCase() ||
+                    (g.away?.toLowerCase().includes(data.game?.toLowerCase()?.split('@')[0]?.trim()) &&
+                     g.home?.toLowerCase().includes(data.game?.toLowerCase()?.split('@')[1]?.trim()))
       );
       
       if (!existingGame && data.bet_type === 'game') {
@@ -239,10 +247,30 @@ If the bet doesn't exist or the game isn't today, respond with:
         
         embed.addFields({
           name: '📋 Added to Slate',
-          value: `This bet has been added and ranked **#${addedGameRank}** of ${cachedSlate.slateJson.games.length} plays based on confidence.`,
+          value: `This bet has been added and ranked **#${addedGameRank}** of ${cachedSlate.slateJson.games.length} plays based on ${data.confidence}% confidence.`,
+          inline: false
+        });
+        
+        console.log('[ANALYZE] Added to slate at rank', addedGameRank);
+      } else if (existingGame) {
+        embed.addFields({
+          name: '📋 Already in Slate',
+          value: `This game is already in the slate at rank **#${existingGame.rank}**.`,
           inline: false
         });
       }
+    } else if (addToSlate && !cachedSlate) {
+      embed.addFields({
+        name: '⚠️ No Slate',
+        value: `Run \`/slate\` first to generate today's slate before adding bets.`,
+        inline: false
+      });
+    } else if (addToSlate && data.recommendation !== 'PLAY' && data.recommendation !== 'LEAN') {
+      embed.addFields({
+        name: '⚠️ Not Added',
+        value: `Bet not added to slate — recommendation is **${data.recommendation}** (only PLAY/LEAN bets are added).`,
+        inline: false
+      });
     }
     
     await i.editReply({ content: '', embeds: [embed] });
